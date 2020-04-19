@@ -1,0 +1,15 @@
+
+ - Add error handling to all API requests
+ - Store .metadata as google document so it does not count towards users storage
+ - Implement resource lock while modifying metadata file
+ - Add information to metadata to display files stored & directory structure
+ - Verify input files exists
+ - Move B&S folder location to this directory NEVER add firefox profile to this directory as it contains login
+    credentials for my Google account.
+ - Add .metadata and images to same Drive directory
+ - Modify Google Drive folder names to avoid conflicts
+ - Do not allow title name conflicts when uploading
+ - Add error handling after every relevant os.system call
+ - Make sure all fprintf statements in tobmp use the same iostream
+ - Incorporate tobmp within github project
+ - If upload file is a single zip file, skip the archive step
