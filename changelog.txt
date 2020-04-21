@@ -1,2 +1,10 @@
+Version 1.0.1
+    - Minor cleanup of legacy code
+    - Obtaining credential stage is now performed in exploitStartup() function
+    - os.system return values are now checked
+    - More concise comments
+    - Paths and certain parameters are now contained in a config file
+    - config.json added to .gitignore
+
 Version 1.0.0
     - Initial Commit

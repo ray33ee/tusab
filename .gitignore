@@ -1,5 +1,6 @@
 *.pickle
 credentials.json
+config.json
 files/
 tmp/*
 .idea/

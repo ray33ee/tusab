@@ -21,14 +21,18 @@ METADATA_FOLDER_NAME = "exploit images metadata"
 # If modifying these scopes, delete the file token.pickle.
 DRIVESCOPES = ['https://www.googleapis.com/auth/drive']
 
-tmp_location = ".\\tmp\\"
+#tmp_location = ".\\tmp\\"
 
-backup_and_sync_path = "E:\\Will\\Pictures\\exploit images\\"
+#backup_and_sync_path = "E:\\Will\\Pictures\\exploit images\\"
 
 volume_size = 64 * 1000 * 1000 - 1000
 
 metadataID = None
 metaFolderID = None
+
+config = None
+
+#TIMEOUT = -1
 
 EMPTY_METADATA_FILE = {
     "storage": {
@@ -126,11 +130,13 @@ def createMetadata(drive):
     # Get ID of folder
     folderID = drive.files().create(body=folder_info, fields='id').execute().get('id')
 
+    # Setup file name and parent folder for drive
     file_info = {
         'name': METADATA_FILE_NAME,
         'parents': [folderID]
     }
 
+    # Add filename prefix to metadata file
     EMPTY_METADATA_FILE["storage"]["prefix"] = uuid.uuid4().hex[0:10]
 
     # Convert data from python dictionary to string json byte stream
@@ -182,14 +188,15 @@ def exploitDownload(drive, file, folder):
     # Search through metadata list for 'file' then extract entry
     fileList = metadata[file]['images']
 
-    # Iterate over list of names download and convert back to archive volumes
+    # Make sure download files dont already exist in tmp location
 
+    # Iterate over list of image names in group, download and convert back to archive volumes
     archiveVolumes = ""
 
     for entry in fileList:
 
         request = drive.files().get_media(fileId=entry['id'])
-        fh = open(tmp_location + entry['name'], "wb")
+        fh = open(config['temporary-file-path'] + entry['name'], "wb")
 
         downloader = MediaIoBaseDownload(fh, request)
         done = False
@@ -201,68 +208,88 @@ def exploitDownload(drive, file, folder):
 
         bmpName = entry['name'][0:-3] + "bmp"
 
-        os.system("magick convert \"" + tmp_location + entry['name'] + "\" \"" + tmp_location + bmpName + "\"")
+        if os.system("magick convert \"" + config['temporary-file-path'] + entry['name'] + "\" \"" +
+                     config['temporary-file-path'] + bmpName + "\"") != 0:
+            raise Exception("MAGICK_CONVERT_FAILED_EXCEPTION")
 
-        os.system("del \"" + tmp_location + entry['name'] + "\"")
+        os.system("del \"" + config['temporary-file-path'] + entry['name'] + "\"")
 
-        if os.system("tobmp \"" + tmp_location + bmpName + "\"") != 0:
+        if os.system("tobmp \"" + config['temporary-file-path'] + bmpName + "\"") != 0:
             raise Exception("TOBMP_FAILED_EXCEPTION")
 
-        archiveVolumes += "\"" + tmp_location + entry['name'][0:-4] + "\" "
+        archiveVolumes += "\"" + config['temporary-file-path'] + entry['name'][0:-4] + "\" "
 
     # Extract archive
-    print("archive volumes " + tmp_location + fileList[0]['name'][0:-4])
+    print("archive volumes " + config['temporary-file-path'] + fileList[0]['name'][0:-4])
 
-    os.system("7z x " + tmp_location + fileList[0]['name'][0:-4] + " -o\"" + folder + "\"")
+    if os.system("7z x " + config['temporary-file-path'] + fileList[0]['name'][0:-4] + " -o\"" + folder + "\"") != 0:
+        raise Exception("7ZIP_FAILED_EXCEPTION")
 
     # Delete archive
     os.system("del " + archiveVolumes)
 
 
-def exploitStartup(drive):
+def exploitStartup():
 
     global metadataID, metaFolderID
+
+    # Get drive service
+    driveCreds = getCredentials(DRIVESCOPES, "drive.pickle")
+
+    drive = build('drive', 'v3', credentials=driveCreds)
 
     # Search for METADATA_FILE_NAME
     metadataID, metaFolderID = findMetadata(drive)
 
+    # If metadata file does not exist, create an empty one
     if not metadataID:
         createMetadata(drive)
 
+    # Load the config file - The config file, config.json should be automatically generated during installation
+    fp = open("./config.json", "r")
+    config = json.load(fp)
+
     print("File ID:  " + metadataID)
 
+    return drive, config
 
-def exploitUpload(drive, title, file_list):
+
+def exploitUpload(drive, titleName, file_list):
 
     # Download metadata
     data = loadMetadata(drive)
 
-    # Generate file group name - name comes from the parent folder of the file group, or the file if it is individual
-    titleName = title
-
     # Generate unique file name
     output_file_name = str(uuid.uuid4())
 
-    # Make sure output_file_name is not already taken
+    # Zip up file_list files
 
-    os.system("7z a -tzip -v" + str(volume_size) + " \"" + tmp_location + output_file_name + ".zip\" " + file_list)
+    if os.system("7z a -tzip -v" + str(volume_size) + " \"" + config['temporary-file-path'] + output_file_name +
+                 ".zip\" " + file_list) != 0:
+        raise Exception("7ZIP_FAILED_EXCEPTION")
 
-    directory_list = os.listdir(tmp_location)
+    directory_list = os.listdir(config['temporary-file-path'])
 
+    # Iterate over all the generated archive volumes and convert to png, then move to B&S location
     index = 1
-
     while True:
         number_string = "{:03d}".format(index)
         file_part = output_file_name + ".zip." + number_string
         prefix = data['storage']['prefix']
         print(file_part)
         if directory_list.__contains__(file_part):
-            os.system("tobmp \"" + tmp_location + file_part + "\"")
-            os.system("magick convert -quality 0 \"" + tmp_location + output_file_name + ".zip." + number_string +
-                      ".bmp\" \"" + tmp_location + output_file_name + ".zip." + number_string + ".png\"")
-            os.system("del \"" + tmp_location + output_file_name + ".zip." + number_string + ".bmp\"")
-            os.system("move \"" + tmp_location + output_file_name + ".zip." + number_string + ".png\" \"" +
-                      backup_and_sync_path + prefix + "-" + output_file_name + ".zip." + number_string + ".png\"")
+            os.system("tobmp \"" + config['temporary-file-path'] + file_part + "\"")
+            os.system("magick convert -quality 0 \"" + config['temporary-file-path'] + output_file_name + ".zip." +
+                        number_string + ".bmp\" \"" + config['temporary-file-path'] + output_file_name + ".zip."
+                      + number_string + ".png\"")
+            print("del \"" + config['temporary-file-path'] + output_file_name + ".zip." + number_string + ".bmp\"")
+            os.system("del \"" + config['temporary-file-path'] + output_file_name + ".zip." + number_string + ".bmp\"")
+            print("move \"" + config['temporary-file-path'] + output_file_name + ".zip." + number_string +
+                      ".png\" \"" + config['backup-and-sync-path'] + prefix + "-" + output_file_name + ".zip." +
+                      number_string + ".png\"")
+            os.system("move \"" + config['temporary-file-path'] + output_file_name + ".zip." + number_string +
+                      ".png\" \"" + config['backup-and-sync-path'] + prefix + "-" + output_file_name + ".zip." +
+                      number_string + ".png\"")
             index = index + 1
         else:
             break
@@ -280,30 +307,33 @@ def exploitUpload(drive, title, file_list):
     search = 1 if (count == 1) else count - 1
 
     while True:
-        imageFiles = drive.files().list(q="name='" + prefix + "-" + output_file_name + ".zip." + "{:03d}".format(search) + ".png'").execute()["files"]
+        imageFiles = drive.files().list(q="name='" + prefix + "-" + output_file_name + ".zip." + "{:03d}".format(search)
+                                          + ".png'").execute()["files"]
 
         print([imageFiles, delay])
         if imageFiles.__len__() > 0:
             break
-        if delay == 14:
+        if delay == config['timeout']:
             # Timeout
-            print("Timeout")
-            # quit(-3)
+            raise Exception("UPLOAD_TIMEOUT_EXCEPTION")
 
         time.sleep(delay)
-        delay = delay + 1  # Should this need to be an arithmetic or geometric progression?
 
-    # Verify all files are uploaded and obtain uploaded file info
+        # Increasing the delay each time gives a quadratic progression, which minimises the number of API calls
+        delay = delay + 1
 
+    # At the point we can be reasonably confident that all files have been uploaded, but to make sure we
+    # verify all files are uploaded and obtain uploaded file info
     imageFileList = []
 
+    # Because we are making multiple calls per iteration, double the delays
     delay = delay * 2
     while True:
         imageFileList = []
 
         for i in range(1, count + 1):
-            imageFiles = drive.files().list(q="name='" + prefix + "-" + output_file_name + ".zip." + "{:03d}".format(i) +
-                                                     ".png' and not trashed", fields="files(id,name)").execute()["files"]
+            imageFiles = drive.files().list(q="name='" + prefix + "-" + output_file_name + ".zip." + "{:03d}".format(i)
+                                              + ".png' and not trashed", fields="files(id,name)").execute()["files"]
             print([count, prefix + "-" + output_file_name + ".zip." + "{:03d}".format(i) + ".png", imageFiles, delay])
             if imageFiles.__len__() == 1:
                 imageFileList.append(imageFiles[0])
@@ -315,7 +345,8 @@ def exploitUpload(drive, title, file_list):
     # Delete the files from the B&S upload directory
 
     for i in range(1, count + 1):
-        os.system("del \"" + backup_and_sync_path + prefix + "-" + output_file_name + ".zip." + "{:03d}".format(i) + ".png\"")
+        os.system("del \"" + config['backup-and-sync-path'] + prefix + "-" + output_file_name + ".zip." +
+                  "{:03d}".format(i) + ".png\"")
 
     # Modify dictionary
     data["storage"]["groups"][titleName] = {
@@ -370,45 +401,17 @@ def exploitGetPrefix(drive):
     return data['storage']['prefix'] + "-"
 
 
-def test(drive):
-
-    count = 6
-    output_file_name = "clion"
-
-    delay = 0
-
-    while True:
-        imageFileList = []
-
-        for i in range(1, count + 1):
-            imageFiles = drive.files().list(q="name='" + output_file_name + ".zip." + "{:03d}".format(i) +
-                                                 ".png' and not trashed", fields="files(id,name)").execute()["files"]
-            #print([count, output_file_name + ".zip." + "{:03d}".format(i) + ".png", imageFiles, delay])
-            if imageFiles.__len__() == 1:
-                imageFileList.append(imageFiles[0])
-        if imageFileList.__len__() == count:
-            print(imageFileList)
-            break
-        time.sleep(delay)
-        delay = delay + 1
-
-
-
-    return
-
-
 def main():
-    driveCreds = getCredentials(DRIVESCOPES, "drive.pickle")
 
-    serviceDrive = build('drive', 'v3', credentials=driveCreds)
+    global config
 
-    exploitStartup(serviceDrive)
+    drive, config = exploitStartup()
 
-    #exploitUpload(serviceDrive, "test1", "\"E:\\Will\\Downloads\\CLion-2018.3.2.exe\"")
-    #exploitDownload(serviceDrive, 'Tex and Origin', "E:\\Software Projects\\Python\\exploit_main\\files\\extract")
-    exploitDelete(serviceDrive, 'Ubuntu')
+    print("Prefix: " + exploitGetPrefix(drive))
 
-    print("Prefix: " + exploitGetPrefix(serviceDrive))
+    #exploitUpload(drive, "Erase", "\"E:\\Will\\Downloads\\Eraser 6.2.0.2986.exe\"")
+    #exploitDownload(drive, 'Android', "E:\\Software Projects\\Python\\tusab\\files\\")
+    #exploitDelete(drive, 'Ubuntu')
 
 
 if __name__ == '__main__':
