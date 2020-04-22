@@ -1,3 +1,11 @@
+Version 1.0.2
+    - Added a few print statements for extra clarity
+    - Script now checks for name conflicts when uploading
+    - File list and folder structure now added to metadata during upload
+    - String appended to Drive folder name for uniqueness
+    - todo.txt file reorganised
+    - Renamed exploitRename to exploitDelete (so -r is remove, -d is download)
+
 Version 1.0.1
     - Minor cleanup of legacy code
     - Obtaining credential stage is now performed in exploitStartup() function

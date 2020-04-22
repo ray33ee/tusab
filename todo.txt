@@ -1,17 +1,20 @@
-
- - Add error handling to all API requests
- - Store .metadata as google document so it does not count towards users storage
+Fixes:
  - Implement resource lock while modifying metadata file
- - Add information to metadata to display files stored & directory structure
- - Verify input files exists
+
+Error handling:
+ - Add error handling to all API requests
+
+Metadata
+ - Store .metadata as google document so it does not count towards users storage
  - Add .metadata and images to same Drive directory
- - Modify Google Drive folder names to avoid conflicts
- - Do not allow title name conflicts when uploading
- - Add error handling after every relevant os.system call
+
+tobmp
  - Make sure all fprintf statements in tobmp use the same iostream
- - Incorporate tobmp within github project
- - If upload file is a single zip file, skip the archive step
+ - Incorporate tobmp within github project?
+
+Misc
  - Decide what to do if the user tries to upload already existing file group
     - exploitUpload should fail if title already exists in metadata
     - exploitUpdate for modifying uploads?
- - Make paths in config.json os-independent
+ - If upload file is a single zip file, skip the archive step
+ - Add support for command line arguments

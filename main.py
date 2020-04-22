@@ -15,15 +15,14 @@ from googleapiclient.http import MediaIoBaseDownload
 # Name of file containing image metadata and file information
 METADATA_FILE_NAME = ".metadata"
 
+# Folder identifier to prevent conflicts
+FOLDER_IDENTIFIER = "775334298f5807bc09b8be827286e533"
+
 # Name of folder containing image metadata folder
-METADATA_FOLDER_NAME = "exploit images metadata"
+METADATA_FOLDER_NAME = "exploit images metadata (" + FOLDER_IDENTIFIER + ")"
 
 # If modifying these scopes, delete the file token.pickle.
 DRIVESCOPES = ['https://www.googleapis.com/auth/drive']
-
-#tmp_location = ".\\tmp\\"
-
-#backup_and_sync_path = "E:\\Will\\Pictures\\exploit images\\"
 
 volume_size = 64 * 1000 * 1000 - 1000
 
@@ -31,8 +30,6 @@ metadataID = None
 metaFolderID = None
 
 config = None
-
-#TIMEOUT = -1
 
 EMPTY_METADATA_FILE = {
     "storage": {
@@ -89,7 +86,7 @@ def loadMetadata(drive):
     done = False
     while done is False:
         status, done = downloader.next_chunk()
-        print("Download %d%%." % int(status.progress() * 100))
+        print("Downloading metadata %d%%." % int(status.progress() * 100))
 
     # Convert to json
     data = json.loads(fh.getvalue())
@@ -151,6 +148,49 @@ def createMetadata(drive):
     metadataID = drive.files().create(body=file_info, media_body=media, fields='id').execute().get('id')
 
 
+def getFolders(path):
+
+    # Setup template
+    folder = {
+        "name": os.path.basename(path),
+        "files": [],
+        "folders": []
+    }
+
+    # Get a list of containing files and folders
+    sub = os.listdir(path)
+
+    # recursively fetch containing stuff
+    for item in sub:
+        if os.path.isfile(os.path.join(path, item)):
+            folder['files'].append(os.path.basename(item))
+        elif os.path.isdir(os.path.join(path, item)):
+            folder['folders'].append(getFolders(os.path.join(path, item)))
+
+    return folder
+
+
+def fileStructure(file_list):
+
+    # Split string up into multiple paths using " as delimiter
+    filePythonList = file_list.split('\"')
+
+    print(filePythonList)
+
+    structure = {
+        "files": [],
+        "folders": []
+    }
+
+    # Iterate over file_list then recursively list containing files and folders
+    for path in filePythonList:
+        if os.path.exists(path):
+            if os.path.isfile(path):
+                structure['files'].append(os.path.basename(path))
+            elif os.path.isdir(path):
+                structure['folders'].append(getFolders(path))
+
+    return structure
 
 # Get valid credentials for Google drive api
 def getCredentials(scopes, name):
@@ -174,7 +214,7 @@ def getCredentials(scopes, name):
     return creds
 
 
-def exploitDownload(drive, file, folder):
+def exploitDownload(drive, title, folder):
 
     # Verify metadata file ID is non-null
     if not metadataID:
@@ -186,7 +226,7 @@ def exploitDownload(drive, file, folder):
     imageList = None
 
     # Search through metadata list for 'file' then extract entry
-    fileList = metadata[file]['images']
+    fileList = metadata[title]['images']
 
     # Make sure download files dont already exist in tmp location
 
@@ -202,7 +242,7 @@ def exploitDownload(drive, file, folder):
         done = False
         while done is False:
             status, done = downloader.next_chunk()
-            print("Download %d%%." % int(status.progress() * 100))
+            print("Downloading " + entry['name'] + ": %d%%." % int(status.progress() * 100))
 
         fh.close()
 
@@ -259,15 +299,27 @@ def exploitUpload(drive, titleName, file_list):
     # Download metadata
     data = loadMetadata(drive)
 
+    print("Metadata: " + json.dumps(data, indent=4))
+
+    # Check titlename doesnt already exist
+    if titleName in data['storage']['groups']:
+        raise Exception("TITLE_ALREADY_EXISTS_EXCEPTION")
+
     # Generate unique file name
     output_file_name = str(uuid.uuid4())
 
-    # Zip up file_list files
+    # If we are only dealing with a single file already zipped, move and rename
+    #filesPythonList = file_list.split('\"')
+    #if filesPythonList.__len__() == 3 and filesPythonList[1][-3:filesPythonList.__len__()] == 'zip':
+    #    os.system("move \"" + filesPythonList[1] + "\" \"" + config['temporary-file-path'] + output_file_name + "\"")
+    #else:
 
+    # Zip up file_list files
     if os.system("7z a -tzip -v" + str(volume_size) + " \"" + config['temporary-file-path'] + output_file_name +
                  ".zip\" " + file_list) != 0:
         raise Exception("7ZIP_FAILED_EXCEPTION")
 
+    # Get list of all files and directories in tmp folder
     directory_list = os.listdir(config['temporary-file-path'])
 
     # Iterate over all the generated archive volumes and convert to png, then move to B&S location
@@ -282,11 +334,7 @@ def exploitUpload(drive, titleName, file_list):
             os.system("magick convert -quality 0 \"" + config['temporary-file-path'] + output_file_name + ".zip." +
                         number_string + ".bmp\" \"" + config['temporary-file-path'] + output_file_name + ".zip."
                       + number_string + ".png\"")
-            print("del \"" + config['temporary-file-path'] + output_file_name + ".zip." + number_string + ".bmp\"")
             os.system("del \"" + config['temporary-file-path'] + output_file_name + ".zip." + number_string + ".bmp\"")
-            print("move \"" + config['temporary-file-path'] + output_file_name + ".zip." + number_string +
-                      ".png\" \"" + config['backup-and-sync-path'] + prefix + "-" + output_file_name + ".zip." +
-                      number_string + ".png\"")
             os.system("move \"" + config['temporary-file-path'] + output_file_name + ".zip." + number_string +
                       ".png\" \"" + config['backup-and-sync-path'] + prefix + "-" + output_file_name + ".zip." +
                       number_string + ".png\"")
@@ -351,8 +399,10 @@ def exploitUpload(drive, titleName, file_list):
     # Modify dictionary
     data["storage"]["groups"][titleName] = {
         "images": imageFileList,
-        "structure": []
+        "structure": fileStructure(file_list)
     }
+
+    print("Added entry: " + json.dumps(data["storage"]["groups"][titleName], indent=4))
 
     # Upload metadata
     saveMetadata(drive, data)
@@ -369,7 +419,7 @@ def exploitList(drive):
 
 
 # Delete entry from drive
-def exploitDelete(drive, title):
+def exploitRemove(drive, title):
 
     # Open metadata
     data = loadMetadata(drive)
@@ -390,10 +440,18 @@ def exploitDelete(drive, title):
     saveMetadata(drive, data)
 
 
+# For testing purposes, not to be in final release
+def deleteAll(drive):
+    groups = loadMetadata(drive)['storage']['groups']
+
+    for group in groups:
+        exploitRemove(drive, group)
+
+
 # Since photos are moved to Google Photos when deleted from Google drive (only if uploaded via B&S) and Google Photos
 # API does not currently support deleting photos, we prefix each photo with the same 10 character string stored in the
 # metadata file. This allows users to use this string to search for all images in Google Photos and manually delete.
-def exploitGetPrefix(drive):
+def exploitPrefix(drive):
     # Get metadata
     data = loadMetadata(drive)
 
@@ -407,11 +465,11 @@ def main():
 
     drive, config = exploitStartup()
 
-    print("Prefix: " + exploitGetPrefix(drive))
+    print("Prefix: " + exploitPrefix(drive))
 
-    #exploitUpload(drive, "Erase", "\"E:\\Will\\Downloads\\Eraser 6.2.0.2986.exe\"")
-    #exploitDownload(drive, 'Android', "E:\\Software Projects\\Python\\tusab\\files\\")
-    #exploitDelete(drive, 'Ubuntu')
+    #exploitUpload(drive, "Mix", "\"E:\\Software Projects\\Geany\\tobmp\\etc\" \"E:\\Will\\Downloads\\ImageMagick-7.0.10-0-Q8-x64-dll.exe\"")
+    #exploitDownload(drive, 'Mix', "E:\\Software Projects\\Python\\tusab\\files")
+    exploitRemove(drive, 'Mix')
 
 
 if __name__ == '__main__':
