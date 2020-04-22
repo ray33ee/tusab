@@ -3,13 +3,13 @@ Fixes:
 
 Error handling:
  - Add error handling to all API requests
+ - More specific, less general exception handling
 
 Metadata
  - Store .metadata as google document so it does not count towards users storage
  - Add .metadata and images to same Drive directory
 
 tobmp
- - Make sure all fprintf statements in tobmp use the same iostream
  - Incorporate tobmp within github project?
 
 Misc
@@ -17,4 +17,3 @@ Misc
     - exploitUpload should fail if title already exists in metadata
     - exploitUpdate for modifying uploads?
  - If upload file is a single zip file, skip the archive step
- - Add support for command line arguments
