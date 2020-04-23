@@ -4,3 +4,7 @@ config.json
 files/
 tmp/*
 .idea/
+build/
+dist/
+__pycache__/
+main.spec

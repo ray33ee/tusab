@@ -1,3 +1,11 @@
+Version 1.0.4
+    - Better, more specific and more verbose exception handling with clearer messages and more information
+    - Lower level functions added to algorithms.py, and error related code added to error.py
+    - We now return error codes
+    - We now check that all os.system calls to non-os software exit properly
+    - Strategy to prevent access conflicts within tmp and .metadata folder outlined in todo.txt
+    - Trailing slash removed from config file paths and added to code, for correctness
+
 Version 1.0.3
     - Support for command line arguments added
     - Debug and error messages displayed via stderr and output messages displayed via stdout

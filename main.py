@@ -1,242 +1,25 @@
-import pickle
-import os
 import time
-import json
-import uuid
-import io
-import sys
 
-from googleapiclient.discovery import build
-from google_auth_oauthlib.flow import InstalledAppFlow
-from google.auth.transport.requests import Request
+from algorithms import *
 
-from googleapiclient.http import MediaIoBaseUpload
 from googleapiclient.http import MediaIoBaseDownload
-
-# Name of file containing image metadata and file information
-METADATA_FILE_NAME = ".metadata"
-
-# Folder identifier to prevent conflicts
-FOLDER_IDENTIFIER = "775334298f5807bc09b8be827286e533"
-
-# Name of folder containing image metadata folder
-METADATA_FOLDER_NAME = "exploit images metadata (" + FOLDER_IDENTIFIER + ")"
-
-# If modifying these scopes, delete the file token.pickle.
-DRIVESCOPES = ['https://www.googleapis.com/auth/drive']
 
 # Volume size ensures that resultant images are no larger than 16MP.
 volume_size = 64 * 1000 * 1000 - 1000
 
-metadataID = None
-metaFolderID = None
-
+# Config file stored on host (not in drive)
 config = None
-
-EMPTY_METADATA_FILE = {
-    "storage": {
-        "prefix": "",
-        "groups": {}
-    }
-}
-
-
-# Print error messages, debug messages and informative messages on stderr
-def debugPrint(message):
-    sys.stderr.write("" + message + "\n")
-
-
-# Print the output of commands to stdout
-def outputPrint(message):
-    sys.stdout.write("" + message + "\n")
-
-
-# Finds metadata file and returns ID. If file does not exist, returns None
-def findMetadata(drive):
-
-    # get list of folders that are named METADATA_FOLDER_NAME, in the root directory and not deleted
-    metaFolders = drive.files().list(q="name='" + METADATA_FOLDER_NAME + "' and not trashed and 'root' in parents",
-                                     fields='files(id)').execute()["files"]
-
-    debugPrint("Folders: " + str(metaFolders))
-
-    # If none exist, return None
-    if metaFolders.__len__() == 0:
-        return None, None
-
-    # If more than one exist, throw MULTIPLE_FOLDERS_FOUND exception
-    if metaFolders.__len__() > 1:
-        raise Exception("MULTIPLE_FOLDERS_FOUND")
-
-    # Get ID of folder
-    folderID = metaFolders[0]['id']
-
-    # Next get list of all files named METADATA_FILE_NAME
-    metaFiles = drive.files().list(q="name='" + METADATA_FILE_NAME + "' and not trashed and '"
-                                       + folderID + "' in parents",
-                                     fields='files(id)').execute()["files"]
-
-    # If this is empty, throw METADATA_FILE_NOT_FOUND exception
-    if metaFiles.__len__() == 0:
-        raise Exception("METADATA_FILE_NOT_FOUND")
-
-    if metaFiles.__len__() > 1:
-        raise Exception("DUPLICATE_METADATA_FILES_FOUND")
-
-    return metaFiles[0]['id'], metaFolders[0]['id']
-
-
-def loadMetadata(drive):
-
-    # By this point in the program, metadataID should be loaded with the metadata file id, but just in case we test
-    if not metadataID:
-        raise Exception("METADATA_FILE_NOT_LOADED")
-
-    # Download data
-    request = drive.files().get_media(fileId=metadataID)
-    fh = io.BytesIO()
-    downloader = MediaIoBaseDownload(fh, request)
-    done = False
-    while done is False:
-        status, done = downloader.next_chunk()
-        debugPrint("Downloading metadata " + str(int(status.progress() * 100)) + "%")
-
-    # Convert to json
-    data = json.loads(fh.getvalue())
-
-    return data
-
-
-# Update metadata file
-def saveMetadata(drive, data):
-
-    # By this point in the program, metadataID should be loaded with the metadata file id, but just in case we test
-    if not metadataID:
-        raise Exception("METADATA_FILE_NOT_LOADED")
-
-    # Convert data from python dictionary to string json byte stream
-    fh = io.BytesIO(bytearray(json.dumps(data, indent=4), 'utf-8'))
-
-    # Create media body for request
-    media = MediaIoBaseUpload(fh,
-                              mimetype='application/json',
-                              resumable=True)
-
-    # Call update to... update
-    drive.files().update(fileId=metadataID, media_body=media).execute()
-
-
-#    create empty default METADATA_FILE_NAME in Exploit folder in drive and get its ID
-def createMetadata(drive):
-
-    global metadataID
-
-    # Create folder for metadata file
-    folder_info = {
-        'name': METADATA_FOLDER_NAME,
-        'mimeType': 'application/vnd.google-apps.folder'
-    }
-
-    # Get ID of folder
-    folderID = drive.files().create(body=folder_info, fields='id').execute().get('id')
-
-    # Setup file name and parent folder for drive
-    file_info = {
-        'name': METADATA_FILE_NAME,
-        'parents': [folderID]
-    }
-
-    # Add filename prefix to metadata file
-    EMPTY_METADATA_FILE["storage"]["prefix"] = uuid.uuid4().hex[0:10]
-
-    # Convert data from python dictionary to string json byte stream
-    fh = io.BytesIO(bytearray(json.dumps(EMPTY_METADATA_FILE, indent=4), 'utf-8'))
-
-    # Create media body for request
-    media = MediaIoBaseUpload(fh,
-                            mimetype='application/json',
-                            resumable=True)
-
-    # Send create request and get ID of resultant file
-    metadataID = drive.files().create(body=file_info, media_body=media, fields='id').execute().get('id')
-
-
-def getFolders(path):
-
-    # Setup template
-    folder = {
-        "name": os.path.basename(path),
-        "files": [],
-        "folders": []
-    }
-
-    # Get a list of containing files and folders
-    sub = os.listdir(path)
-
-    # recursively fetch containing stuff
-    for item in sub:
-        if os.path.isfile(os.path.join(path, item)):
-            folder['files'].append(os.path.basename(item))
-        elif os.path.isdir(os.path.join(path, item)):
-            folder['folders'].append(getFolders(os.path.join(path, item)))
-
-    return folder
-
-
-def fileStructure(file_list):
-
-    # Split string up into multiple paths using " as delimiter
-    filePythonList = file_list.split('\"')
-
-    debugPrint(str(filePythonList))
-
-    structure = {
-        "files": [],
-        "folders": []
-    }
-
-    # Iterate over file_list then recursively list containing files and folders
-    for path in filePythonList:
-        if os.path.exists(path):
-            if os.path.isfile(path):
-                structure['files'].append(os.path.basename(path))
-            elif os.path.isdir(path):
-                structure['folders'].append(getFolders(path))
-
-    return structure
-
-# Get valid credentials for Google drive api
-def getCredentials(scopes, name):
-    creds = None
-
-    if os.path.exists(name):
-        with open(name, 'rb') as token:
-            creds = pickle.load(token)
-    # If there are no (valid) credentials available, let the user log in.
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            flow = InstalledAppFlow.from_client_secrets_file(
-                'credentials.json', scopes)
-            creds = flow.run_local_server(port=0)
-        # Save the credentials for the next run
-        with open(name, 'wb') as token:
-            pickle.dump(creds, token)
-
-    return creds
 
 
 def exploitDownload(drive, title, folder):
-
-    # Verify metadata file ID is non-null
-    if not metadataID:
-        raise Exception("METADATA_FILE_NOT_LOADED")
-
     # Read Metadata
     metadata = loadMetadata(drive)['storage']['groups']
 
     imageList = None
+
+    # Check title exists
+    if not title in metadata:
+        raise TITLE_DOES_NOT_EXIST("The title '" + title + "' does not exist.", title, metadata)
 
     # Search through metadata list for 'file' then extract entry
     fileList = metadata[title]['images']
@@ -249,7 +32,7 @@ def exploitDownload(drive, title, folder):
     for entry in fileList:
 
         request = drive.files().get_media(fileId=entry['id'])
-        fh = open(config['temporary-file-path'] + entry['name'], "wb")
+        fh = open(config['temporary-file-path'] + "\\" + entry['name'], "wb")
 
         downloader = MediaIoBaseDownload(fh, request)
         done = False
@@ -261,50 +44,25 @@ def exploitDownload(drive, title, folder):
 
         bmpName = entry['name'][0:-3] + "bmp"
 
-        if os.system("magick convert \"" + config['temporary-file-path'] + entry['name'] + "\" \"" +
-                     config['temporary-file-path'] + bmpName + "\" 1>&2") != 0:
-            raise Exception("MAGICK_CONVERT_FAILED_EXCEPTION")
+        if os.system("magick convert \"" + config['temporary-file-path'] + "\\" + entry['name'] + "\" \"" +
+                     config['temporary-file-path'] + "\\" + bmpName + "\" 1>&2") != 0:
+            raise MagickConvertFailedError()
 
-        os.system("del \"" + config['temporary-file-path'] + entry['name'] + "\" 1>&2")
+        os.system("del \"" + config['temporary-file-path'] + "\\" + entry['name'] + "\" 1>&2")
 
-        if os.system("tobmp \"" + config['temporary-file-path'] + bmpName + "\" 1>&2") != 0:
-            raise Exception("TOBMP_FAILED_EXCEPTION")
+        if os.system("tobmp \"" + config['temporary-file-path'] + "\\" + bmpName + "\" 1>&2") != 0:
+            raise tobmpConvertFailedError()
 
-        archiveVolumes += "\"" + config['temporary-file-path'] + entry['name'][0:-4] + "\" "
+        archiveVolumes += "\"" + config['temporary-file-path'] + "\\" + entry['name'][0:-4] + "\" "
 
     # Extract archive
-    debugPrint("archive volumes " + config['temporary-file-path'] + fileList[0]['name'][0:-4])
+    debugPrint("archive volumes " + config['temporary-file-path'] + "\\" + fileList[0]['name'][0:-4])
 
-    if os.system("7z x " + config['temporary-file-path'] + fileList[0]['name'][0:-4] + " -o\"" + folder + "\" 1>&2") != 0:
-        raise Exception("7ZIP_FAILED_EXCEPTION")
+    if os.system("7z x " + config['temporary-file-path'] + "\\" + fileList[0]['name'][0:-4] + " -o\"" + folder + "\" 1>&2") != 0:
+        raise SevenZipConvertFailedError()
 
     # Delete archive
     os.system("del " + archiveVolumes + " 1>&2")
-
-
-def exploitStartup():
-
-    global metadataID, metaFolderID
-
-    # Get drive service
-    driveCreds = getCredentials(DRIVESCOPES, "drive.pickle")
-
-    drive = build('drive', 'v3', credentials=driveCreds)
-
-    # Search for METADATA_FILE_NAME
-    metadataID, metaFolderID = findMetadata(drive)
-
-    # If metadata file does not exist, create an empty one
-    if not metadataID:
-        createMetadata(drive)
-
-    # Load the config file - The config file, config.json should be automatically generated during installation
-    fp = open("./config.json", "r")
-    config = json.load(fp)
-
-    debugPrint("File ID:  " + metadataID)
-
-    return drive, config
 
 
 def exploitUpload(drive, titleName, file_list):
@@ -316,7 +74,7 @@ def exploitUpload(drive, titleName, file_list):
 
     # Check titlename doesnt already exist
     if titleName in data['storage']['groups']:
-        raise Exception("TITLE_ALREADY_EXISTS_EXCEPTION")
+        raise TitleAlreadyExistsError("Title chosen is already in use.", titleName)
 
     # Generate unique file name
     output_file_name = str(uuid.uuid4())
@@ -324,13 +82,13 @@ def exploitUpload(drive, titleName, file_list):
     # If we are only dealing with a single file already zipped, move and rename
     #filesPythonList = file_list.split('\"')
     #if filesPythonList.__len__() == 3 and filesPythonList[1][-3:filesPythonList.__len__()] == 'zip':
-    #    os.system("move \"" + filesPythonList[1] + "\" \"" + config['temporary-file-path'] + output_file_name + "\" 1>&2")
+    #    os.system("move \"" + filesPythonList[1] + "\" \"" + config['temporary-file-path'] + "\\" + output_file_name + "\" 1>&2")
     #else:
 
     # Zip up file_list files
-    if os.system("7z a -tzip -v" + str(volume_size) + " \"" + config['temporary-file-path'] + output_file_name +
+    if os.system("7z a -tzip -v" + str(volume_size) + " \"" + config['temporary-file-path'] + "\\" + output_file_name +
                  ".zip\" " + file_list + " 1>&2") != 0:
-        raise Exception("7ZIP_FAILED_EXCEPTION")
+        raise SevenZipConvertFailedError()
 
     # Get list of all files and directories in tmp folder
     directory_list = os.listdir(config['temporary-file-path'])
@@ -343,13 +101,15 @@ def exploitUpload(drive, titleName, file_list):
         prefix = data['storage']['prefix']
         debugPrint(file_part)
         if directory_list.__contains__(file_part):
-            os.system("tobmp \"" + config['temporary-file-path'] + file_part + "\" 1>&2")
-            os.system("magick convert -quality 0 \"" + config['temporary-file-path'] + output_file_name + ".zip." +
-                        number_string + ".bmp\" \"" + config['temporary-file-path'] + output_file_name + ".zip."
-                      + number_string + ".png\" 1>&2")
-            os.system("del \"" + config['temporary-file-path'] + output_file_name + ".zip." + number_string + ".bmp\" 1>&2")
-            os.system("move \"" + config['temporary-file-path'] + output_file_name + ".zip." + number_string +
-                      ".png\" \"" + config['backup-and-sync-path'] + prefix + "-" + output_file_name + ".zip." +
+            if os.system("tobmp \"" + config['temporary-file-path'] + "\\" + file_part + "\" 1>&2") != 0:
+                raise tobmpConvertFailedError()
+            if os.system("magick convert -quality 0 \"" + config['temporary-file-path'] + "\\" + output_file_name + ".zip." +
+                        number_string + ".bmp\" \"" + config['temporary-file-path'] + "\\" + output_file_name + ".zip."
+                      + number_string + ".png\" 1>&2") != 0:
+                raise MagickConvertFailedError()
+            os.system("del \"" + config['temporary-file-path'] + "\\" + output_file_name + ".zip." + number_string + ".bmp\" 1>&2")
+            os.system("move \"" + config['temporary-file-path'] + "\\" + output_file_name + ".zip." + number_string +
+                      ".png\" \"" + config['backup-and-sync-path'] + "\\" + prefix + "-" + output_file_name + ".zip." +
                       number_string + ".png\" 1>&2")
             index = index + 1
         else:
@@ -376,7 +136,7 @@ def exploitUpload(drive, titleName, file_list):
             break
         if delay == config['timeout']:
             # Timeout
-            raise Exception("UPLOAD_TIMEOUT_EXCEPTION")
+            raise UploadTimeoutError("B&S Upload timeout reached.", config['timeout'], [imageFiles, delay])
 
         time.sleep(delay)
 
@@ -406,7 +166,7 @@ def exploitUpload(drive, titleName, file_list):
     # Delete the files from the B&S upload directory
 
     for i in range(1, count + 1):
-        os.system("del \"" + config['backup-and-sync-path'] + prefix + "-" + output_file_name + ".zip." +
+        os.system("del \"" + config['backup-and-sync-path'] + "\\" + prefix + "-" + output_file_name + ".zip." +
                   "{:03d}".format(i) + ".png\" 1>&2")
 
     # Modify dictionary
@@ -437,6 +197,10 @@ def exploitRemove(drive, title):
     # Open metadata
     data = loadMetadata(drive)
 
+    # Check title exists
+    if not title in data['storage']['groups']:
+        raise TITLE_DOES_NOT_EXIST("The title '" + title + "' does not exist.", title, data['storage']['groups'])
+
     # Get 'title' element containing group data
     groups = data['storage']['groups'][title]['images']
 
@@ -453,14 +217,6 @@ def exploitRemove(drive, title):
     saveMetadata(drive, data)
 
 
-# For testing purposes, not to be in final release
-def deleteAll(drive):
-    groups = loadMetadata(drive)['storage']['groups']
-
-    for group in groups:
-        exploitRemove(drive, group)
-
-
 # Since photos are moved to Google Photos when deleted from Google drive (only if uploaded via B&S) and Google Photos
 # API does not currently support deleting photos, we prefix each photo with the same 10 character string stored in the
 # metadata file. This allows users to use this string to search for all images in Google Photos and manually delete.
@@ -472,81 +228,92 @@ def exploitPrefix(drive):
     return data['storage']['prefix'] + "-"
 
 
+# For testing purposes, not to be in final release
+def deleteAll(drive):
+    groups = loadMetadata(drive)['storage']['groups']
+
+    for group in groups:
+        exploitRemove(drive, group)
+
+
 def main():
 
     global config
 
-    drive, config = exploitStartup()
-
-    debugPrint("Prefix: " + str(exploitPrefix(drive)))
-
-    debugPrint("Arguments: " + str(sys.argv))
+    ret = 0
 
 
-    if sys.argv.__len__() < 2:
-        debugPrint("Invalid command number of line arguments, aborting...")
-        return -1
-    else:
-        command = sys.argv[1]
-        if command == "-d":
-            if sys.argv.__len__() != 4:
-                debugPrint("Invalid number of command line arguments for -d, aborting...")
-                return -2
+    try:
+        drive, config = exploitStartup()
 
-            if not os.path.exists(sys.argv[3]):
-                debugPrint("Folder '" + sys.argv[3] + "' does not exist. Aborting...")
+        debugPrint("Prefix: " + str(exploitPrefix(drive)))
 
-            try:
+        debugPrint("Arguments: " + str(sys.argv))
+
+        if sys.argv.__len__() < 2:
+            debugPrint("Invalid command number of line arguments, aborting...")
+            sys.exit(INVALID_NUMBER_OF_COMMAND_LINE_ARGUMENTS)
+        else:
+            command = sys.argv[1]
+            if command == "-d":
+                if sys.argv.__len__() != 4:
+                    debugPrint("Invalid number of command line arguments for -d, aborting...")
+                    sys.exit(INVALID_NUMBER_OF_COMMAND_LINE_ARGUMENTS)
+
+                if not os.path.exists(sys.argv[3]):
+                    debugPrint("Folder '" + sys.argv[3] + "' does not exist. Aborting...")
+
                 exploitDownload(drive, sys.argv[2], sys.argv[3])
-            except Exception as exc:
-                debugPrint(str(exc) + " - Aborting...")
 
-        elif command == "-u":
+            elif command == "-u":
 
-            list = ""
+                list = ""
 
-            if sys.argv.__len__() < 4:
-                debugPrint("Invalid number of command line arguments for -u, aborting...")
-                return -2
+                if sys.argv.__len__() < 4:
+                    debugPrint("Invalid number of command line arguments for -u, aborting...")
+                    sys.exit(INVALID_NUMBER_OF_COMMAND_LINE_ARGUMENTS)
 
-            for i in range(3, sys.argv.__len__()):
-                path = sys.argv[i]
-                if not os.path.exists(sys.argv[i]):
-                    debugPrint("File '" + sys.argv[i] + "' does not exist. Aborting...")
-                    return -3
-                list += "\"" + path + "\" "
+                for i in range(3, sys.argv.__len__()):
+                    path = sys.argv[i]
+                    if not os.path.exists(sys.argv[i]):
+                        debugPrint("File '" + sys.argv[i] + "' does not exist. Aborting...")
+                        sys.exit(INVALID_COMMAND_LINE_PATH)
+                    list += "\"" + path + "\" "
 
-            try:
                 exploitUpload(drive, sys.argv[2], list)
-            except Exception as exc:
-                debugPrint(str(exc) + " - Aborting...")
 
-        elif command == "-l":
-            if sys.argv.__len__() != 2:
-                debugPrint("Invalid number of command line arguments for -l, aborting...")
-                return -2
+            elif command == "-l":
+                if sys.argv.__len__() != 2:
+                    debugPrint("Invalid number of command line arguments for -l, aborting...")
+                    sys.exit(INVALID_NUMBER_OF_COMMAND_LINE_ARGUMENTS)
 
-            outputPrint(json.dumps(exploitList(drive)))
+                outputPrint(json.dumps(exploitList(drive)))
 
-        elif command == "-p":
-            if sys.argv.__len__() != 2:
-                debugPrint("Invalid number of command line arguments for -p, aborting...")
-                return -2
+            elif command == "-p":
+                if sys.argv.__len__() != 2:
+                    debugPrint("Invalid number of command line arguments for -p, aborting...")
+                    sys.exit(INVALID_NUMBER_OF_COMMAND_LINE_ARGUMENTS)
 
-            outputPrint(exploitPrefix(drive))
+                outputPrint(exploitPrefix(drive))
 
-        elif command == "-r":
-            if sys.argv.__len__() != 3:
-                debugPrint("Invalid number of command line arguments for -r, aborting...")
-                return -2
+            elif command == "-r":
+                if sys.argv.__len__() != 3:
+                    debugPrint("Invalid number of command line arguments for -r, aborting...")
+                    sys.exit(INVALID_NUMBER_OF_COMMAND_LINE_ARGUMENTS)
 
-            try:
                 exploitRemove(drive, sys.argv[2])
-            except Exception as exc:
-                debugPrint(str(exc) + " - Aborting...")
 
-        elif command == "-h":
-            return
+            elif command == "-h":
+                return
+
+    except TusabException as exc:
+        debugPrint(str(exc) + ".\nAborting...")
+        sys.exit(exc.code)
+
+    finally:
+
+
+        pass
 
 
 
