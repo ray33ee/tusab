@@ -24,7 +24,7 @@ class TusabException(Exception):
         self.code = code
 
     def __str__(self):
-        return str(self.name) + " - '" + str(self.message) + "' " + str(self.args) + " Code " + str(self.code) + "."
+        return str(self.name) + " - '" + str(self.message) + "' " + str(self.args) + ". Exiting with code " + str(self.code) + "."
 
 
 class MultipleFoldersFoundError(TusabException):

@@ -1,46 +1,27 @@
 Fixes:
- - Implement resource lock on all functions that modify metadata
- - Using structure (from metadata entry) check to make sure no output files already exist in output path location
+ - Using the top level of structure (from metadata entry) check to make sure no output files already exist in output path location
+ - Add resource lock to .metadata file in Drive
 
 Error handling:
  - Add error handling to all API requests
- - Add finally block to delete contents of tmp folder?
- - Make sure code finishes correctly after exception
+ - Make sure code finishes correctly after exceptions (no files left behind, premature modification of metadata file, etc)
 
 Metadata
  - Store .metadata as google document so it does not count towards users storage
  - Add .metadata and images to same Drive directory
 
 tobmp
-
+ - Use 1bpp for low resolution images to make them higher resolution (as B&S won't upload images smaller than 256x256)
 
 Misc
- - Decide what to do if the user tries to upload already existing file group
-    - exploitUpload should fail if title already exists in metadata
-    - exploitUpdate for modifying uploads?
+ - Create exploitUpdate for modifying uploads?
  - Add -h option functionality
+
 
 Uncertain
  - Incorporate tobmp within github project?
- - If upload file is a single zip file, skip the archive step
+ - If upload file is a single zip file, skip the archive step? what about for files too small or too large?
 
 
 
-What do we do about multiple instances of tusab running on same computer and the conflicts that arise?
-Conflicts within tmp folder, conflicts with accessing metadata. What about multiple instances of tusab connecting to the
-same account at the same time? Is prepending a pid to each tmp file (and then deleting all files in tmp with same pid)
-enough to avoid conflicts between programs?
-
-Conflicts arise from two sources:
-    - Tmp folder - Two instances running at the same time, pointint to the same tmp location and downloading
-      (but not uploading since different uuid strings will be generated. What about simultaneous uploads?) at the same time
-    - .metadata file - Two instances running at the same time (using the same account) modifying the .metadata at the
-      sane time
-
- - The first conflict can be resolved by prepending files in the tmp directory with the pid of id of the process that
-generated it. This has the added benefit or making the cleanup easier. Creating a function called 'exploitFlush' that
-deletes all files in tmp with the current pid, so as to only delete files it has created.
-
- - The second conflict can be resolved by a) employing a resource lock to ensure that no two instances may modify the
-metadata file at the same time and b) checking for title name conflicts when uploading and checking title name exists
-when removing.
+Use file hash during upload and download to confirm file integrity

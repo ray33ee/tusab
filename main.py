@@ -2,6 +2,8 @@ import time
 
 from algorithms import *
 
+import shutil
+
 from googleapiclient.http import MediaIoBaseDownload
 
 # Volume size ensures that resultant images are no larger than 16MP.
@@ -17,8 +19,10 @@ def exploitDownload(drive, title, folder):
 
     imageList = None
 
+    parentidentifier = str(getParentIdentifier())
+
     # Check title exists
-    if not title in metadata:
+    if title not in metadata:
         raise TITLE_DOES_NOT_EXIST("The title '" + title + "' does not exist.", title, metadata)
 
     # Search through metadata list for 'file' then extract entry
@@ -27,12 +31,12 @@ def exploitDownload(drive, title, folder):
     # Make sure download files dont already exist in tmp location
 
     # Iterate over list of image names in group, download and convert back to archive volumes
-    archiveVolumes = ""
+    archiveVolumes = []
 
     for entry in fileList:
 
         request = drive.files().get_media(fileId=entry['id'])
-        fh = open(config['temporary-file-path'] + "\\" + entry['name'], "wb")
+        fh = open(config['temporary-file-path'] + "\\" + parentidentifier + "-" + entry['name'], "wb")
 
         downloader = MediaIoBaseDownload(fh, request)
         done = False
@@ -44,25 +48,22 @@ def exploitDownload(drive, title, folder):
 
         bmpName = entry['name'][0:-3] + "bmp"
 
-        if os.system("magick convert \"" + config['temporary-file-path'] + "\\" + entry['name'] + "\" \"" +
-                     config['temporary-file-path'] + "\\" + bmpName + "\" 1>&2") != 0:
-            raise MagickConvertFailedError()
+        runProcess(MagickConvertFailedError, "magick", "convert",
+                   config['temporary-file-path'] + "\\" + parentidentifier + "-" + entry['name'],
+                   config['temporary-file-path'] + "\\" + parentidentifier + "-" + bmpName)
 
-        os.system("del \"" + config['temporary-file-path'] + "\\" + entry['name'] + "\" 1>&2")
+        os.remove(config['temporary-file-path'] + "\\" + parentidentifier + "-" + entry['name'])
 
-        if os.system("tobmp \"" + config['temporary-file-path'] + "\\" + bmpName + "\" 1>&2") != 0:
-            raise tobmpConvertFailedError()
+        runProcess(tobmpConvertFailedError, "tobmp", config['temporary-file-path'] + "\\" + parentidentifier + "-" + bmpName)
 
-        archiveVolumes += "\"" + config['temporary-file-path'] + "\\" + entry['name'][0:-4] + "\" "
+        archiveVolumes.append(config['temporary-file-path'] + "\\" + parentidentifier + "-" + entry['name'][0:-4])
 
     # Extract archive
-    debugPrint("archive volumes " + config['temporary-file-path'] + "\\" + fileList[0]['name'][0:-4])
+    runProcess(SevenZipConvertFailedError, "7z", "x", config['temporary-file-path'] + "\\" + parentidentifier + "-" + fileList[0]['name'][0:-4], "-o" + folder)
 
-    if os.system("7z x " + config['temporary-file-path'] + "\\" + fileList[0]['name'][0:-4] + " -o\"" + folder + "\" 1>&2") != 0:
-        raise SevenZipConvertFailedError()
-
-    # Delete archive
-    os.system("del " + archiveVolumes + " 1>&2")
+    # Delete archive volumes
+    for file in archiveVolumes:
+        os.remove(file)
 
 
 def exploitUpload(drive, titleName, file_list):
@@ -79,16 +80,20 @@ def exploitUpload(drive, titleName, file_list):
     # Generate unique file name
     output_file_name = str(uuid.uuid4())
 
-    # If we are only dealing with a single file already zipped, move and rename
-    #filesPythonList = file_list.split('\"')
-    #if filesPythonList.__len__() == 3 and filesPythonList[1][-3:filesPythonList.__len__()] == 'zip':
-    #    os.system("move \"" + filesPythonList[1] + "\" \"" + config['temporary-file-path'] + "\\" + output_file_name + "\" 1>&2")
-    #else:
+    parentidentifier = getParentIdentifier()
 
-    # Zip up file_list files
-    if os.system("7z a -tzip -v" + str(volume_size) + " \"" + config['temporary-file-path'] + "\\" + output_file_name +
-                 ".zip\" " + file_list + " 1>&2") != 0:
-        raise SevenZipConvertFailedError()
+    args = ["7z", "a", "-tzip", "-v" + str(volume_size),
+                   config['temporary-file-path'] + "\\" + parentidentifier + "-" + output_file_name + ".zip"]
+
+    for file in file_list:
+        args.append(file)
+
+    print(args)
+
+    # Add each file to archive
+    runProcess(SevenZipConvertFailedError, *args)
+
+    print("not here")
 
     # Get list of all files and directories in tmp folder
     directory_list = os.listdir(config['temporary-file-path'])
@@ -97,20 +102,22 @@ def exploitUpload(drive, titleName, file_list):
     index = 1
     while True:
         number_string = "{:03d}".format(index)
-        file_part = output_file_name + ".zip." + number_string
+        file_part = parentidentifier + "-" + output_file_name + ".zip." + number_string
         prefix = data['storage']['prefix']
-        debugPrint(file_part)
+        debugPrint("file part: " + file_part)
         if directory_list.__contains__(file_part):
-            if os.system("tobmp \"" + config['temporary-file-path'] + "\\" + file_part + "\" 1>&2") != 0:
-                raise tobmpConvertFailedError()
-            if os.system("magick convert -quality 0 \"" + config['temporary-file-path'] + "\\" + output_file_name + ".zip." +
-                        number_string + ".bmp\" \"" + config['temporary-file-path'] + "\\" + output_file_name + ".zip."
-                      + number_string + ".png\" 1>&2") != 0:
-                raise MagickConvertFailedError()
-            os.system("del \"" + config['temporary-file-path'] + "\\" + output_file_name + ".zip." + number_string + ".bmp\" 1>&2")
-            os.system("move \"" + config['temporary-file-path'] + "\\" + output_file_name + ".zip." + number_string +
-                      ".png\" \"" + config['backup-and-sync-path'] + "\\" + prefix + "-" + output_file_name + ".zip." +
-                      number_string + ".png\" 1>&2")
+            runProcess(tobmpConvertFailedError, "tobmp", config['temporary-file-path'] + "\\" + file_part)
+
+            runProcess(MagickConvertFailedError, "magick", "convert", config['temporary-file-path'] + "\\" + parentidentifier + "-"
+                       + output_file_name + ".zip." + number_string + ".bmp", config['temporary-file-path'] +
+                       "\\" + parentidentifier + "-" + output_file_name + ".zip." + number_string + ".png")
+
+            os.remove(config['temporary-file-path'] + "\\" + parentidentifier + "-" + output_file_name +
+                      ".zip." + number_string + ".bmp")
+
+            shutil.move(config['temporary-file-path'] + "\\" + parentidentifier + "-" + output_file_name +".zip." + number_string + ".png",
+                        config['backup-and-sync-path'] + "\\" + prefix + "-" + output_file_name + ".zip." + number_string + ".png")
+
             index = index + 1
         else:
             break
@@ -164,10 +171,9 @@ def exploitUpload(drive, titleName, file_list):
         delay = delay + 1
 
     # Delete the files from the B&S upload directory
-
     for i in range(1, count + 1):
-        os.system("del \"" + config['backup-and-sync-path'] + "\\" + prefix + "-" + output_file_name + ".zip." +
-                  "{:03d}".format(i) + ".png\" 1>&2")
+        os.remove(config['backup-and-sync-path'] + "\\" + prefix + "-" + output_file_name + ".zip." +
+                  "{:03d}".format(i) + ".png")
 
     # Modify dictionary
     data["storage"]["groups"][titleName] = {
@@ -228,6 +234,20 @@ def exploitPrefix(drive):
     return data['storage']['prefix'] + "-"
 
 
+# This function will delete all files in tmp created by this processes parent
+def exploitFlush():
+
+    # Get parent identifier
+    parentIdentifier = getParentIdentifier()
+
+    # Get list of all files generated by tuasb with the same parent id as this and delete
+    completeList = os.listdir(config['temporary-file-path'])
+
+    for file in completeList:
+        if parentIdentifier in file:
+            os.remove(config['temporary-file-path'] + "\\" + file)
+
+
 # For testing purposes, not to be in final release
 def deleteAll(drive):
     groups = loadMetadata(drive)['storage']['groups']
@@ -240,10 +260,10 @@ def main():
 
     global config
 
-    ret = 0
-
+    debugPrint("Parent PID: " + str(os.getppid()))
 
     try:
+
         drive, config = exploitStartup()
 
         debugPrint("Prefix: " + str(exploitPrefix(drive)))
@@ -267,7 +287,7 @@ def main():
 
             elif command == "-u":
 
-                list = ""
+                #list = ""
 
                 if sys.argv.__len__() < 4:
                     debugPrint("Invalid number of command line arguments for -u, aborting...")
@@ -278,9 +298,9 @@ def main():
                     if not os.path.exists(sys.argv[i]):
                         debugPrint("File '" + sys.argv[i] + "' does not exist. Aborting...")
                         sys.exit(INVALID_COMMAND_LINE_PATH)
-                    list += "\"" + path + "\" "
+                    #list += "\"" + path + "\" "
 
-                exploitUpload(drive, sys.argv[2], list)
+                exploitUpload(drive, sys.argv[2], sys.argv[3:sys.argv.__len__()])
 
             elif command == "-l":
                 if sys.argv.__len__() != 2:
@@ -303,11 +323,18 @@ def main():
 
                 exploitRemove(drive, sys.argv[2])
 
+            elif command == "-f":
+                if sys.argv.__len__() != 2:
+                    debugPrint("Invalid number of command line arguments for -f, aborting...")
+                    sys.exit(INVALID_NUMBER_OF_COMMAND_LINE_ARGUMENTS)
+
+                exploitFlush()
+
             elif command == "-h":
                 return
 
     except TusabException as exc:
-        debugPrint(str(exc) + ".\nAborting...")
+        debugPrint(str(exc) + "\nAborting...")
         sys.exit(exc.code)
 
     finally:

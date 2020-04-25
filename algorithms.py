@@ -12,6 +12,10 @@ import json
 import uuid
 import os
 
+import subprocess
+
+import hashlib
+
 from error import *
 
 # Name of file containing image metadata and file information
@@ -37,6 +41,15 @@ EMPTY_METADATA_FILE = {
 metadataID = None
 metaFolderID = None
 
+
+# Runs a process using subprocess.run, with stdout redirected to stderr and raises exception if the command fails.
+def runProcess(exception, *args):
+    ret = subprocess.run(args, stdout=sys.stderr)
+
+    if ret.returncode != 0:
+        raise exception("" + args[0] + " failed with code " + str(ret.returncode) + ".", ret)
+
+
 # Print error messages, debug messages and informative messages on stderr
 def debugPrint(message):
     sys.stderr.write("" + message + "\n")
@@ -47,7 +60,7 @@ def outputPrint(message):
     sys.stdout.write("" + message + "\n")
 
 
-# Finds metadata file and returns ID. If file does not exist, returns None
+# Finds metadata file in Drive and returns ID. If file does not exist, returns None
 def findMetadata(drive):
 
     # get list of folders that are named METADATA_FOLDER_NAME, in the root directory and not deleted
@@ -184,10 +197,7 @@ def getFolders(path):
 
 def fileStructure(file_list):
 
-    # Split string up into multiple paths using " as delimiter
-    filePythonList = file_list.split('\"')
-
-    debugPrint(str(filePythonList))
+    debugPrint(str(file_list))
 
     structure = {
         "files": [],
@@ -195,7 +205,7 @@ def fileStructure(file_list):
     }
 
     # Iterate over file_list then recursively list containing files and folders
-    for path in filePythonList:
+    for path in file_list:
         if os.path.exists(path):
             if os.path.isfile(path):
                 structure['files'].append(os.path.basename(path))
@@ -203,6 +213,14 @@ def fileStructure(file_list):
                 structure['folders'].append(getFolders(path))
 
     return structure
+
+
+# Here we feed the parent PID into an md5 generator to create an identifier unique to the parent process.
+# Note: We chose not to simply use the parent PID directly as this is short enough to possibly be contained in the uuid
+# string and risk accidental deletion
+def getParentIdentifier():
+    return hashlib.md5(str(os.getppid()).encode()).hexdigest()
+
 
 # Get valid credentials for Google drive api
 def getCredentials(scopes, name):

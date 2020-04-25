@@ -1,3 +1,11 @@
+Version 1.0.5
+    - Files stored in tmp folder are now prepended with parent process id md5 digest
+    - Added exploitFlush to remove files in tmp folder with same parent ID digest
+    - Added -f command for exploitFlush
+    - We now use subprocess.run instead of os.system
+    - File deletion and moving now uses os.remove and shutil.move
+    - runProcess function added to execute a process, redirect stdour and raise an exception if command fails
+
 Version 1.0.4
     - Better, more specific and more verbose exception handling with clearer messages and more information
     - Lower level functions added to algorithms.py, and error related code added to error.py
