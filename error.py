@@ -14,6 +14,7 @@ TITLE_ALREADY_EXISTS = -11
 UPLOAD_TIMEOUT = -12
 INVALID_COMMAND_LINE_PATH = -13
 TITLE_DOES_NOT_EXIST = -14
+OUTPUT_FILES_ALREADY_EXIST = -15
 
 
 class TusabException(Exception):
@@ -75,4 +76,9 @@ class UploadTimeoutError(TusabException):
 class TitleDoesNotExistError(TusabException):
     def __init__(self, message="", *args):
         super().__init__("TitleDoesNotExistError", TITLE_DOES_NOT_EXIST, message, args)
+
+
+class OutputFilesAlreadyExist(TusabException):
+    def __init__(self, message="", *args):
+        super().__init__("OutputFilesAlreadyExist", OUTPUT_FILES_ALREADY_EXIST, message, args)
 

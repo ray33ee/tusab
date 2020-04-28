@@ -1,5 +1,4 @@
 Fixes:
- - Using the top level of structure (from metadata entry) check to make sure no output files already exist in output path location
  - Add resource lock to .metadata file in Drive
 
 Error handling:

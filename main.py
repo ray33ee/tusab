@@ -23,12 +23,25 @@ def exploitDownload(drive, title, folder):
 
     # Check title exists
     if title not in metadata:
-        raise TITLE_DOES_NOT_EXIST("The title '" + title + "' does not exist.", title, metadata)
+        raise TitleDoesNotExistError("The title '" + str(title) + "' does not exist.", title, metadata)
 
     # Search through metadata list for 'file' then extract entry
     fileList = metadata[title]['images']
 
     # Make sure download files dont already exist in tmp location
+    structure = metadata[title]['structure']['files']
+    subitems = os.listdir(folder)
+    conflicts = []
+
+    for item in metadata[title]['structure']['folders']:
+        structure.append(item['name'])
+
+    for element in structure:
+        if element in subitems:
+            conflicts.append(element)
+
+    if conflicts.__len__() != 0:
+        raise OutputFilesAlreadyExist("The following files '" + str(conflicts) + "' already exist.", conflicts, folder)
 
     # Iterate over list of image names in group, download and convert back to archive volumes
     archiveVolumes = []
@@ -48,18 +61,18 @@ def exploitDownload(drive, title, folder):
 
         bmpName = entry['name'][0:-3] + "bmp"
 
-        runProcess(MagickConvertFailedError, "magick", "convert",
+        runProcess(MagickConvertFailedError, False, "magick", "convert",
                    config['temporary-file-path'] + "\\" + parentidentifier + "-" + entry['name'],
                    config['temporary-file-path'] + "\\" + parentidentifier + "-" + bmpName)
 
         os.remove(config['temporary-file-path'] + "\\" + parentidentifier + "-" + entry['name'])
 
-        runProcess(tobmpConvertFailedError, "tobmp", config['temporary-file-path'] + "\\" + parentidentifier + "-" + bmpName)
+        runProcess(tobmpConvertFailedError, False, "tobmp", config['temporary-file-path'] + "\\" + parentidentifier + "-" + bmpName)
 
         archiveVolumes.append(config['temporary-file-path'] + "\\" + parentidentifier + "-" + entry['name'][0:-4])
 
     # Extract archive
-    runProcess(SevenZipConvertFailedError, "7z", "x", config['temporary-file-path'] + "\\" + parentidentifier + "-" + fileList[0]['name'][0:-4], "-o" + folder)
+    runProcess(SevenZipConvertFailedError, False, "7z", "x", config['temporary-file-path'] + "\\" + parentidentifier + "-" + fileList[0]['name'][0:-4], "-o" + folder)
 
     # Delete archive volumes
     for file in archiveVolumes:
@@ -82,21 +95,15 @@ def exploitUpload(drive, titleName, file_list):
 
     parentidentifier = getParentIdentifier()
 
-    args = ["7z", "a", "-tzip", "-v" + str(volume_size),
-                   config['temporary-file-path'] + "\\" + parentidentifier + "-" + output_file_name + ".zip"]
-
-    for file in file_list:
-        args.append(file)
-
-    print(args)
-
     # Add each file to archive
-    runProcess(SevenZipConvertFailedError, *args)
-
-    print("not here")
+    runProcess(SevenZipConvertFailedError, False, "7z", "a", "-tzip", "-v" + str(volume_size),
+               config['temporary-file-path'] + "\\" + parentidentifier + "-" + output_file_name + ".zip", *file_list)
 
     # Get list of all files and directories in tmp folder
     directory_list = os.listdir(config['temporary-file-path'])
+
+    # Total size of input data, in bytes
+    dataCount = 0
 
     # Iterate over all the generated archive volumes and convert to png, then move to B&S location
     index = 1
@@ -106,9 +113,11 @@ def exploitUpload(drive, titleName, file_list):
         prefix = data['storage']['prefix']
         debugPrint("file part: " + file_part)
         if directory_list.__contains__(file_part):
-            runProcess(tobmpConvertFailedError, "tobmp", config['temporary-file-path'] + "\\" + file_part)
+            res = runProcess(tobmpConvertFailedError, True, "tobmp", config['temporary-file-path'] + "\\" + file_part)
 
-            runProcess(MagickConvertFailedError, "magick", "convert", config['temporary-file-path'] + "\\" + parentidentifier + "-"
+            dataCount += json.loads(str(res.stdout))['filesize']
+
+            runProcess(MagickConvertFailedError, False, "magick", "convert", config['temporary-file-path'] + "\\" + parentidentifier + "-"
                        + output_file_name + ".zip." + number_string + ".bmp", config['temporary-file-path'] +
                        "\\" + parentidentifier + "-" + output_file_name + ".zip." + number_string + ".png")
 
@@ -178,7 +187,11 @@ def exploitUpload(drive, titleName, file_list):
     # Modify dictionary
     data["storage"]["groups"][titleName] = {
         "images": imageFileList,
-        "structure": fileStructure(file_list)
+        "structure": fileStructure(file_list),
+        "size": {
+            "pixmap": None,      # Size of pixmap in bytes.
+            "data": dataCount  # Total size of input data
+        }
     }
 
     debugPrint("Added entry: " + json.dumps(data["storage"]["groups"][titleName], indent=4))
@@ -287,18 +300,14 @@ def main():
 
             elif command == "-u":
 
-                #list = ""
-
                 if sys.argv.__len__() < 4:
                     debugPrint("Invalid number of command line arguments for -u, aborting...")
                     sys.exit(INVALID_NUMBER_OF_COMMAND_LINE_ARGUMENTS)
 
                 for i in range(3, sys.argv.__len__()):
-                    path = sys.argv[i]
                     if not os.path.exists(sys.argv[i]):
                         debugPrint("File '" + sys.argv[i] + "' does not exist. Aborting...")
                         sys.exit(INVALID_COMMAND_LINE_PATH)
-                    #list += "\"" + path + "\" "
 
                 exploitUpload(drive, sys.argv[2], sys.argv[3:sys.argv.__len__()])
 

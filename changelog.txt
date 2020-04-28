@@ -1,10 +1,16 @@
+Version 1.0.6
+    - runProcess is modified so we can get stdout of a process call
+    - stdout of tobmp used to determine total file size, which is used in metadata file
+    - 7z call in exploitUpload now uses argument unpacking for more concise code
+    - We now throw an exception if any output files for exploitDownload already exist
+
 Version 1.0.5
     - Files stored in tmp folder are now prepended with parent process id md5 digest
     - Added exploitFlush to remove files in tmp folder with same parent ID digest
     - Added -f command for exploitFlush
     - We now use subprocess.run instead of os.system
     - File deletion and moving now uses os.remove and shutil.move
-    - runProcess function added to execute a process, redirect stdour and raise an exception if command fails
+    - runProcess function added to execute a process, redirect stdout and raise an exception if command fails
 
 Version 1.0.4
     - Better, more specific and more verbose exception handling with clearer messages and more information

@@ -43,11 +43,17 @@ metaFolderID = None
 
 
 # Runs a process using subprocess.run, with stdout redirected to stderr and raises exception if the command fails.
-def runProcess(exception, *args):
-    ret = subprocess.run(args, stdout=sys.stderr)
+def runProcess(exception, capture, *args):
+
+    if capture:
+        ret = subprocess.run(args, capture_output=True, text=True)
+    else:
+        ret = subprocess.run(args, stdout=sys.stderr, capture_output=False)
 
     if ret.returncode != 0:
         raise exception("" + args[0] + " failed with code " + str(ret.returncode) + ".", ret)
+
+    return ret
 
 
 # Print error messages, debug messages and informative messages on stderr
