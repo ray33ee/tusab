@@ -5,7 +5,7 @@ INVALID_NUMBER_OF_COMMAND_LINE_ARGUMENTS = -2
 INVALID_COMMAND_LINE_ARGUMENTS = -3
 MULTIPLE_METADATA_FOLDERS_FOUND = -4
 MULTIPLE_METADATA_FILES_FOUND = -5
-METADATA_FILE_NOT_FOUND = -6
+METADATA_FOLDER_NOT_FOUND = -6
 METADATA_FILE_NOT_LOADED = -7
 MAGICK_CONVERT_FAILED = -8
 TOBMP_CONVERT_FAILED = -9
@@ -15,6 +15,8 @@ UPLOAD_TIMEOUT = -12
 INVALID_COMMAND_LINE_PATH = -13
 TITLE_DOES_NOT_EXIST = -14
 OUTPUT_FILES_ALREADY_EXIST = -15
+PASSWORD_REQUIRED = -16
+INCORRECT_PASSWORD = -17
 
 
 class TusabException(Exception):
@@ -33,14 +35,14 @@ class MultipleFoldersFoundError(TusabException):
         super().__init__("MultipleFoldersFoundError", MULTIPLE_METADATA_FOLDERS_FOUND, message, args)
 
 
+class MetadataFolderNotFoundError(TusabException):
+    def __init__(self, message="", *args):
+        super().__init__("MetadataFolderNotFoundError", METADATA_FOLDER_NOT_FOUND, message, args)
+
+
 class MultipleMetadataFilesFoundError(TusabException):
     def __init__(self, message="", *args):
         super().__init__("MultipleMetadataFilesFoundError", MULTIPLE_METADATA_FILES_FOUND, message, args)
-
-
-class MetadataFileNotFoundError(TusabException):
-    def __init__(self, message="", *args):
-        super().__init__("MetadataFileNotFoundError", METADATA_FILE_NOT_FOUND, message, args)
 
 
 class MetadataFileNotLoadedError(TusabException):
@@ -81,4 +83,14 @@ class TitleDoesNotExistError(TusabException):
 class OutputFilesAlreadyExist(TusabException):
     def __init__(self, message="", *args):
         super().__init__("OutputFilesAlreadyExist", OUTPUT_FILES_ALREADY_EXIST, message, args)
+
+
+class PasswordRequired(TusabException):
+    def __init__(self, message="", *args):
+        super().__init__("OutputFilesAlreadyExist", OUTPUT_FILES_ALREADY_EXIST, message, args)
+
+
+class IncorrectPassword(TusabException):
+    def __init__(self, message="", *args):
+        super().__init__("IncorrectPassword", INCORRECT_PASSWORD, message, args)
 

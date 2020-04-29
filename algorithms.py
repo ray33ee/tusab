@@ -16,6 +16,9 @@ import subprocess
 
 import hashlib
 
+import gzip
+import base64
+
 from error import *
 
 # Name of file containing image metadata and file information
@@ -25,16 +28,20 @@ METADATA_FILE_NAME = ".metadata"
 FOLDER_IDENTIFIER = "775334298f5807bc09b8be827286e533"
 
 # Name of folder containing image metadata folder
-METADATA_FOLDER_NAME = "exploit images metadata (" + FOLDER_IDENTIFIER + ")"
+METADATA_FOLDER_NAME = "exploit images (" + FOLDER_IDENTIFIER + ")"
 
 # If modifying these scopes, delete the file token.pickle.
 DRIVESCOPES = ['https://www.googleapis.com/auth/drive']
 
+# Size of the salt used for password hashing
+SALT_LENGTH = 32
+
+# Number of iterations in password hashing function
+SHA_ITERATIONS = 100000
+
 EMPTY_METADATA_FILE = {
-    "storage": {
-        "prefix": "",
-        "groups": {}
-    }
+    "prefix": "",
+    "groups": {}
 }
 
 # IDs for metadata file and containing folder
@@ -70,14 +77,14 @@ def outputPrint(message):
 def findMetadata(drive):
 
     # get list of folders that are named METADATA_FOLDER_NAME, in the root directory and not deleted
-    metaFolders = drive.files().list(q="name='" + METADATA_FOLDER_NAME + "' and not trashed and 'root' in parents",
+    metaFolders = drive.files().list(q="name='" + METADATA_FOLDER_NAME + "' and not trashed",
                                      fields='files(id)').execute()["files"]
 
     debugPrint("Folders: " + str(metaFolders))
 
-    # If none exist, return None
+    # If none exist throw error
     if metaFolders.__len__() == 0:
-        return None, None
+        raise MetadataFolderNotFoundError("Metadata and image folder not found. Aborting...")
 
     # If more than one exist, throw MultipleFoldersFoundError exception
     if metaFolders.__len__() > 1:
@@ -91,10 +98,9 @@ def findMetadata(drive):
                                        + folderID + "' in parents",
                                      fields='files(id)').execute()["files"]
 
-    # If this is empty, throw MetadataFileNotFoundError exception
+    # If this is empty, return the folder ID only
     if metaFiles.__len__() == 0:
-        raise MetadataFileNotFoundError("Could not find metadata file within folder.",
-                                        METADATA_FILE_NAME, METADATA_FOLDER_NAME)
+        return None, metaFolders[0]['id']
 
     if metaFiles.__len__() > 1:
         raise MultipleMetadataFilesFoundError("Multiple metadata files found.", metaFiles)
@@ -110,7 +116,7 @@ def loadMetadata(drive):
                                          "(Are you sure that exploitStartup has been called?")
 
     # Download data
-    request = drive.files().get_media(fileId=metadataID)
+    request = drive.files().export_media(fileId=metadataID, mimeType='text/plain')
     fh = io.BytesIO()
     downloader = MediaIoBaseDownload(fh, request)
     done = False
@@ -133,11 +139,11 @@ def saveMetadata(drive, data):
                                          "(Are you sure that exploitStartup has been called?")
 
     # Convert data from python dictionary to string json byte stream
-    fh = io.BytesIO(bytearray(json.dumps(data, indent=4), 'utf-8'))
+    fh = io.BytesIO(bytearray(json.dumps(data), 'utf-8'))
 
     # Create media body for request
     media = MediaIoBaseUpload(fh,
-                              mimetype='application/json',
+                              mimetype='application/vnd.google-apps.document',
                               resumable=True)
 
     # Call update to... update
@@ -149,30 +155,21 @@ def createMetadata(drive):
 
     global metadataID
 
-    # Create folder for metadata file
-    folder_info = {
-        'name': METADATA_FOLDER_NAME,
-        'mimeType': 'application/vnd.google-apps.folder'
-    }
-
-    # Get ID of folder
-    folderID = drive.files().create(body=folder_info, fields='id').execute().get('id')
-
     # Setup file name and parent folder for drive
     file_info = {
         'name': METADATA_FILE_NAME,
-        'parents': [folderID]
+        'mimeType': 'application/vnd.google-apps.document',
+        'parents': [metaFolderID]
     }
 
     # Add filename prefix to metadata file
-    EMPTY_METADATA_FILE["storage"]["prefix"] = uuid.uuid4().hex[0:10]
+    EMPTY_METADATA_FILE["prefix"] = uuid.uuid4().hex[0:10]
 
     # Convert data from python dictionary to string json byte stream
-    fh = io.BytesIO(bytearray(json.dumps(EMPTY_METADATA_FILE, indent=4), 'utf-8'))
+    fh = io.BytesIO(bytearray(json.dumps(EMPTY_METADATA_FILE), 'utf-8'))
 
     # Create media body for request
-    media = MediaIoBaseUpload(fh,
-                            mimetype='application/json',
+    media = MediaIoBaseUpload(fh, mimetype='text/plain',
                             resumable=True)
 
     # Send create request and get ID of resultant file
@@ -201,7 +198,15 @@ def getFolders(path):
     return folder
 
 
-def fileStructure(file_list):
+def decodeFileStructure(message):
+    # Uncomment this line to return the structure as a python object and skip the following code
+    # return message
+
+    data = base64.b64decode(message)
+    return json.loads(gzip.decompress(data).decode('utf-8'))
+
+
+def encodeFileStructure(file_list):
 
     debugPrint(str(file_list))
 
@@ -218,7 +223,15 @@ def fileStructure(file_list):
             elif os.path.isdir(path):
                 structure['folders'].append(getFolders(path))
 
-    return structure
+    # Uncomment this line to return the structure as a python object and skip the following code
+    # return structure
+
+    # Convert the object to json string and compress
+    data = gzip.compress(json.dumps(structure).encode('utf-8'))
+
+    base = base64.b64encode(data).decode('utf-8')
+
+    return base
 
 
 # Here we feed the parent PID into an md5 generator to create an identifier unique to the parent process.

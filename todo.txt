@@ -5,10 +5,6 @@ Error handling:
  - Add error handling to all API requests
  - Make sure code finishes correctly after exceptions (no files left behind, premature modification of metadata file, etc)
 
-Metadata
- - Store .metadata as google document so it does not count towards users storage
- - Add .metadata and images to same Drive directory
-
 tobmp
  - Use 1bpp for low resolution images to make them higher resolution (as B&S won't upload images smaller than 256x256)
 
@@ -16,11 +12,7 @@ Misc
  - Create exploitUpdate for modifying uploads?
  - Add -h option functionality
 
-
 Uncertain
- - Incorporate tobmp within github project?
  - If upload file is a single zip file, skip the archive step? what about for files too small or too large?
 
-
-
-Use file hash during upload and download to confirm file integrity
+ - Compute hashes using 7z, verify and store in metadata

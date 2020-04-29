@@ -1,3 +1,12 @@
+Version 1.1.0
+    - The structure element in .metadata is now stored as base64 text for compactness of .metadata file
+    - Now allows password encryption and decryption
+    - Raises error if group is encrypted and no password argument is supplied
+    - exploitPrefix now outputs a JSON object via stdout
+    - Metadata is now uploaded as a Google Document and so does not use space
+    - We now store .metadata and images in same folder in Drive
+    - We now store password hash to verify password for encrypted groups (to prevent 7z error when incorrect password is supplied)
+
 Version 1.0.6
     - runProcess is modified so we can get stdout of a process call
     - stdout of tobmp used to determine total file size, which is used in metadata file
