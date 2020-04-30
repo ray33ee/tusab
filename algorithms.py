@@ -11,6 +11,7 @@ import sys
 import json
 import uuid
 import os
+import time
 
 import subprocess
 
@@ -30,6 +31,9 @@ FOLDER_IDENTIFIER = "775334298f5807bc09b8be827286e533"
 # Name of folder containing image metadata folder
 METADATA_FOLDER_NAME = "exploit images (" + FOLDER_IDENTIFIER + ")"
 
+# Name of resource lock
+RESOURCE_LOCK_NAME = ".mutex-"
+
 # If modifying these scopes, delete the file token.pickle.
 DRIVESCOPES = ['https://www.googleapis.com/auth/drive']
 
@@ -47,15 +51,13 @@ EMPTY_METADATA_FILE = {
 # IDs for metadata file and containing folder
 metadataID = None
 metaFolderID = None
+mutexFileID = None
 
 
 # Runs a process using subprocess.run, with stdout redirected to stderr and raises exception if the command fails.
-def runProcess(exception, capture, *args):
+def runProcess(exception, text, *args):
 
-    if capture:
-        ret = subprocess.run(args, capture_output=True, text=True)
-    else:
-        ret = subprocess.run(args, stdout=sys.stderr, capture_output=False)
+    ret = subprocess.run(args, capture_output=True, text=text)
 
     if ret.returncode != 0:
         raise exception("" + args[0] + " failed with code " + str(ret.returncode) + ".", ret)
@@ -76,11 +78,11 @@ def outputPrint(message):
 # Finds metadata file in Drive and returns ID. If file does not exist, returns None
 def findMetadata(drive):
 
+    global metaFolderID, metadataID, mutexFileID
+
     # get list of folders that are named METADATA_FOLDER_NAME, in the root directory and not deleted
     metaFolders = drive.files().list(q="name='" + METADATA_FOLDER_NAME + "' and not trashed",
                                      fields='files(id)').execute()["files"]
-
-    debugPrint("Folders: " + str(metaFolders))
 
     # If none exist throw error
     if metaFolders.__len__() == 0:
@@ -95,17 +97,71 @@ def findMetadata(drive):
 
     # Next get list of all files named METADATA_FILE_NAME
     metaFiles = drive.files().list(q="name='" + METADATA_FILE_NAME + "' and not trashed and '"
-                                       + folderID + "' in parents",
-                                     fields='files(id)').execute()["files"]
+                                   + folderID + "' in parents",
+                                   fields='files(id)').execute()["files"]
 
-    # If this is empty, return the folder ID only
+    # If this is empty, set the folder ID only
     if metaFiles.__len__() == 0:
-        return None, metaFolders[0]['id']
-
-    if metaFiles.__len__() > 1:
+        metaFolderID = metaFolders[0]['id']
+        metadataID = None
+    elif metaFiles.__len__() > 1:
         raise MultipleMetadataFilesFoundError("Multiple metadata files found.", metaFiles)
+    else:
+        metadataID = metaFiles[0]['id']
+        metaFolderID = metaFolders[0]['id']
 
-    return metaFiles[0]['id'], metaFolders[0]['id']
+    # Next get a list of possible mutex files
+    mutexList = drive.files().list(q="name='" + RESOURCE_LOCK_NAME + "l' and not trashed and '"
+                                   + folderID + "' in parents",
+                                   fields='files(id)').execute()["files"]
+
+    mutexList += drive.files().list(q="name='" + RESOURCE_LOCK_NAME + "u' and not trashed and '"
+                                    + folderID + "' in parents",
+                                    fields='files(id)').execute()["files"]
+
+    # If this is empty, return null mutex id
+    if mutexList.__len__() == 0:
+        mutexFileID = None
+    elif mutexList.__len__() > 1:
+        raise MultipleMutexFilesFoundError("Multiple mutex files found.", mutexList)
+    else:
+        mutexFileID = mutexList[0]['id']
+
+
+def isLocked(drive):
+    mutexName = drive.files().get(fileId=mutexFileID, fields='name').execute()["name"]
+    return mutexName == RESOURCE_LOCK_NAME + "l"
+
+
+def wait(drive):
+    sys.stderr.write("Waiting for resource")
+    if isLocked(drive):
+        delay = 1
+        while isLocked(drive):
+            sys.stderr.write(".")
+            time.sleep(delay)
+            delay *= 1.5
+    debugPrint("\nResource free.")
+
+
+def lock(drive):
+    bod = {
+        "name": RESOURCE_LOCK_NAME + "l"
+    }
+
+    drive.files().update(body=bod, fileId=mutexFileID).execute()
+
+    debugPrint("Metafile locked")
+
+
+def unlock(drive):
+    bod = {
+        "name": RESOURCE_LOCK_NAME + "u"
+    }
+
+    drive.files().update(body=bod, fileId=mutexFileID).execute()
+
+    debugPrint("Metafile unlocked")
 
 
 def loadMetadata(drive):
@@ -139,7 +195,7 @@ def saveMetadata(drive, data):
                                          "(Are you sure that exploitStartup has been called?")
 
     # Convert data from python dictionary to string json byte stream
-    fh = io.BytesIO(bytearray(json.dumps(data), 'utf-8'))
+    fh = io.BytesIO(json.dumps(data).encode('utf-8'))
 
     # Create media body for request
     media = MediaIoBaseUpload(fh,
@@ -166,7 +222,7 @@ def createMetadata(drive):
     EMPTY_METADATA_FILE["prefix"] = uuid.uuid4().hex[0:10]
 
     # Convert data from python dictionary to string json byte stream
-    fh = io.BytesIO(bytearray(json.dumps(EMPTY_METADATA_FILE), 'utf-8'))
+    fh = io.BytesIO(json.dumps(EMPTY_METADATA_FILE).encode('utf-8'))
 
     # Create media body for request
     media = MediaIoBaseUpload(fh, mimetype='text/plain',
@@ -174,6 +230,20 @@ def createMetadata(drive):
 
     # Send create request and get ID of resultant file
     metadataID = drive.files().create(body=file_info, media_body=media, fields='id').execute().get('id')
+
+
+def createMutex(drive):
+    global mutexFileID
+
+    # Setup file name and parent folder for drive
+    file_info = {
+        'name': RESOURCE_LOCK_NAME + "u",
+        'mimeType': 'application/vnd.google-apps.document',
+        'parents': [metaFolderID]
+    }
+
+    # Send create request and get ID of resultant file
+    mutexFileID = drive.files().create(body=file_info, fields='id').execute().get('id')
 
 
 def getFolders(path):
@@ -207,9 +277,6 @@ def decodeFileStructure(message):
 
 
 def encodeFileStructure(file_list):
-
-    debugPrint(str(file_list))
-
     structure = {
         "files": [],
         "folders": []
@@ -254,7 +321,7 @@ def getCredentials(scopes, name):
             creds.refresh(Request())
         else:
             flow = InstalledAppFlow.from_client_secrets_file(
-                'credentials.json', scopes)
+                os.path.join(os.path.dirname(__file__), 'credentials.json'), scopes)
             creds = flow.run_local_server(port=0)
         # Save the credentials for the next run
         with open(name, 'wb') as token:
@@ -262,26 +329,29 @@ def getCredentials(scopes, name):
 
     return creds
 
+
 def exploitStartup():
 
     global metadataID, metaFolderID
 
     # Get drive service
-    driveCreds = getCredentials(DRIVESCOPES, "drive.pickle")
+    driveCreds = getCredentials(DRIVESCOPES, os.path.join(os.path.dirname(__file__), "drive.pickle"))
 
     drive = build('drive', 'v3', credentials=driveCreds)
 
     # Search for METADATA_FILE_NAME
-    metadataID, metaFolderID = findMetadata(drive)
+    findMetadata(drive)
+
+    # If mutex file doesn't exist, create one
+    if not mutexFileID:
+        createMutex(drive)
 
     # If metadata file does not exist, create an empty one
     if not metadataID:
         createMetadata(drive)
 
     # Load the config file - The config file, config.json should be automatically generated during installation
-    fp = open("./config.json", "r")
+    fp = open(os.path.join(os.path.dirname(__file__), "config.json"), "r")
     config = json.load(fp)
-
-    debugPrint("File ID:  " + metadataID)
 
     return drive, config

@@ -1,3 +1,10 @@
+Version 1.1.1
+    - Resource lock on metadata file now implemented
+    - Help command now functional
+    - Absolute paths of config files replaced with path derived from __file__
+    - Better output messages to stderr
+    - Path concatenation now performed by os.path.join
+
 Version 1.1.0
     - The structure element in .metadata is now stored as base64 text for compactness of .metadata file
     - Now allows password encryption and decryption

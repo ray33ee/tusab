@@ -17,6 +17,7 @@ TITLE_DOES_NOT_EXIST = -14
 OUTPUT_FILES_ALREADY_EXIST = -15
 PASSWORD_REQUIRED = -16
 INCORRECT_PASSWORD = -17
+MULTIPLE_MUTEX_FILES_FOUND = -18
 
 
 class TusabException(Exception):
@@ -93,4 +94,9 @@ class PasswordRequired(TusabException):
 class IncorrectPassword(TusabException):
     def __init__(self, message="", *args):
         super().__init__("IncorrectPassword", INCORRECT_PASSWORD, message, args)
+
+
+class MultipleMutexFilesFoundError(TusabException):
+    def __init__(self, message="", *args):
+        super().__init__("MultipleMutexFilesFoundError", MULTIPLE_MUTEX_FILES_FOUND, message, args)
 

@@ -14,6 +14,13 @@ config = None
 
 
 def exploitDownload(drive, title, folder, password=None):
+
+    # Wait for lock to open
+    wait(drive)
+
+    # Close lock
+    lock(drive)
+
     # Read Metadata
     metadata = loadMetadata(drive)['groups']
 
@@ -31,6 +38,8 @@ def exploitDownload(drive, title, folder, password=None):
         if not password:
             raise PasswordRequired("Group is encrypted and requires a password. Aborting...")
 
+        debugPrint("Validating password")
+
         encryption = metadata[title]['encryption']
 
         hash = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), base64.b64decode(encryption['salt']), SHA_ITERATIONS)
@@ -40,8 +49,6 @@ def exploitDownload(drive, title, folder, password=None):
 
     # Make sure download files dont already exist in tmp location
     structure = decodeFileStructure(metadata[title]['structure'])
-
-    debugPrint("Structure: " + json.dumps(structure, indent=4))
 
     topDirList = structure['files']
     subitems = os.listdir(folder)
@@ -63,7 +70,7 @@ def exploitDownload(drive, title, folder, password=None):
     for entry in fileList:
 
         request = drive.files().get_media(fileId=entry['id'])
-        fh = open(config['temporary-file-path'] + "\\" + parentidentifier + "-" + entry['name'], "wb")
+        fh = open(os.path.join(config['temporary-file-path'], parentidentifier + "-" + entry['name']), "wb")
 
         downloader = MediaIoBaseDownload(fh, request)
         done = False
@@ -76,14 +83,14 @@ def exploitDownload(drive, title, folder, password=None):
         bmpName = entry['name'][0:-3] + "bmp"
 
         runProcess(MagickConvertFailedError, False, "magick", "convert",
-                   config['temporary-file-path'] + "\\" + parentidentifier + "-" + entry['name'],
-                   config['temporary-file-path'] + "\\" + parentidentifier + "-" + bmpName)
+                   os.path.join(config['temporary-file-path'], parentidentifier + "-" + entry['name']),
+                   os.path.join(config['temporary-file-path'], parentidentifier + "-" + bmpName))
 
-        os.remove(config['temporary-file-path'] + "\\" + parentidentifier + "-" + entry['name'])
+        os.remove(os.path.join(config['temporary-file-path'], parentidentifier + "-" + entry['name']))
 
-        runProcess(tobmpConvertFailedError, False, "tobmp", config['temporary-file-path'] + "\\" + parentidentifier + "-" + bmpName)
+        runProcess(tobmpConvertFailedError, False, "tobmp", os.path.join(config['temporary-file-path'], parentidentifier + "-" + bmpName))
 
-        archiveVolumes.append(config['temporary-file-path'] + "\\" + parentidentifier + "-" + entry['name'][0:-4])
+        archiveVolumes.append(os.path.join(config['temporary-file-path'], parentidentifier + "-" + entry['name'][0:-4]))
 
     # Create password argument if needed
     if password:
@@ -91,15 +98,27 @@ def exploitDownload(drive, title, folder, password=None):
     else:
         decryption = []
 
+    debugPrint("Extracting archive")
+
     # Extract archive
-    runProcess(SevenZipConvertFailedError, False, "7z", "x", *decryption, config['temporary-file-path'] + "\\" + parentidentifier + "-" + fileList[0]['name'][0:-4], "-o" + folder)
+    runProcess(SevenZipConvertFailedError, False, "7z", "x", *decryption,
+               os.path.join(config['temporary-file-path'], parentidentifier + "-" + fileList[0]['name'][0:-4]), "-o" + folder)
 
     # Delete archive volumes
     for file in archiveVolumes:
         os.remove(file)
 
+    # Unlock resource
+    unlock(drive)
+
 
 def exploitUpload(drive, titleName, file_list, password=None):
+
+    # Wait for lock to open
+    wait(drive)
+
+    # Close lock
+    lock(drive)
 
     # Download metadata
     data = loadMetadata(drive)
@@ -119,9 +138,12 @@ def exploitUpload(drive, titleName, file_list, password=None):
     else:
         encryption = []
 
+    debugPrint("Archiving input files and folders")
+
     # Add each file to archive
     runProcess(SevenZipConvertFailedError, False, "7z", "a", *encryption, "-tzip", "-v" + str(volume_size),
-               config['temporary-file-path'] + "\\" + parentidentifier + "-" + output_file_name + ".zip", *file_list)
+               os.path.join(config['temporary-file-path'], parentidentifier + "-" + output_file_name + ".zip"),
+               *file_list)
 
     # Get list of all files and directories in tmp folder
     directory_list = os.listdir(config['temporary-file-path'])
@@ -136,20 +158,20 @@ def exploitUpload(drive, titleName, file_list, password=None):
         file_part = parentidentifier + "-" + output_file_name + ".zip." + number_string
         prefix = data['prefix']
         if directory_list.__contains__(file_part):
-            debugPrint("file part: " + file_part)
-            res = runProcess(tobmpConvertFailedError, True, "tobmp", config['temporary-file-path'] + "\\" + file_part)
+            debugPrint("Processing file: " + file_part)
+            res = runProcess(tobmpConvertFailedError, True, "tobmp",
+                             os.path.join(config['temporary-file-path'], file_part))
 
             dataCount += json.loads(str(res.stdout))['filesize']
 
-            runProcess(MagickConvertFailedError, False, "magick", "convert", config['temporary-file-path'] + "\\" + parentidentifier + "-"
-                       + output_file_name + ".zip." + number_string + ".bmp", config['temporary-file-path'] +
-                       "\\" + parentidentifier + "-" + output_file_name + ".zip." + number_string + ".png")
+            runProcess(MagickConvertFailedError, False, "magick", "convert",
+                       os.path.join(config['temporary-file-path'], file_part + ".bmp"),
+                       os.path.join(config['temporary-file-path'], file_part + ".png"))
 
-            os.remove(config['temporary-file-path'] + "\\" + parentidentifier + "-" + output_file_name +
-                      ".zip." + number_string + ".bmp")
+            os.remove(os.path.join(config['temporary-file-path'], file_part + ".bmp"))
 
-            shutil.move(config['temporary-file-path'] + "\\" + parentidentifier + "-" + output_file_name +".zip." + number_string + ".png",
-                        config['backup-and-sync-path'] + "\\" + prefix + "-" + output_file_name + ".zip." + number_string + ".png")
+            shutil.move(os.path.join(config['temporary-file-path'], file_part + ".png"),
+                        os.path.join(config['backup-and-sync-path'], prefix + "-" + output_file_name + ".zip." + number_string + ".png"))
 
             index = index + 1
         else:
@@ -167,11 +189,12 @@ def exploitUpload(drive, titleName, file_list, password=None):
     # the last volume is probably smaller than the rest) so we monitor this one first
     search = 1 if (count == 1) else count - 1
 
+    sys.stderr.write("Waiting for uploads to complete")
+
     while True:
         imageFiles = drive.files().list(q="name='" + prefix + "-" + output_file_name + ".zip." + "{:03d}".format(search)
                                           + ".png'").execute()["files"]
-
-        debugPrint(str([imageFiles, delay]))
+        sys.stderr.write(".")
         if imageFiles.__len__() > 0:
             break
         if delay == config['timeout']:
@@ -192,10 +215,10 @@ def exploitUpload(drive, titleName, file_list, password=None):
     while True:
         imageFileList = []
 
+        sys.stderr.write("...")
         for i in range(1, count + 1):
             imageFiles = drive.files().list(q="name='" + prefix + "-" + output_file_name + ".zip." + "{:03d}".format(i)
                                               + ".png' and not trashed", fields="files(id,name)").execute()["files"]
-            debugPrint(str([count, prefix + "-" + output_file_name + ".zip." + "{:03d}".format(i) + ".png", imageFiles, delay]))
             if imageFiles.__len__() == 1:
                 imageFileList.append(imageFiles[0])
         if imageFileList.__len__() == count:
@@ -203,10 +226,14 @@ def exploitUpload(drive, titleName, file_list, password=None):
         time.sleep(delay)
         delay = delay + 1
 
+    debugPrint("\nCleaning B&S directory")
+
     # Delete the files from the B&S upload directory
     for i in range(1, count + 1):
-        os.remove(config['backup-and-sync-path'] + "\\" + prefix + "-" + output_file_name + ".zip." +
-                  "{:03d}".format(i) + ".png")
+        os.remove(os.path.join(config['backup-and-sync-path'], prefix + "-" + output_file_name + ".zip." +
+                  "{:03d}".format(i) + ".png"))
+
+    debugPrint("Populating metadata entry")
 
     if password:
         salt = os.urandom(SALT_LENGTH)
@@ -219,8 +246,6 @@ def exploitUpload(drive, titleName, file_list, password=None):
     else:
         encryption = None
 
-    # print("Encryption: " + str(encryption))
-
     # Modify dictionary
     data["groups"][titleName] = {
         "images": imageFileList,
@@ -232,12 +257,13 @@ def exploitUpload(drive, titleName, file_list, password=None):
         "encryption": encryption
     }
 
-    # print("Entry: " + str(data["groups"][titleName]))
-
-    debugPrint("Added entry: " + json.dumps(data["groups"][titleName], indent=4))
+    debugPrint("Saving metadata to Drive")
 
     # Upload metadata
     saveMetadata(drive, data)
+
+    # Unlock resource
+    unlock(drive)
 
 
 # Return list of all uploads with their corresponding file structure
@@ -257,6 +283,12 @@ def exploitList(drive):
 # Delete entry from drive
 def exploitRemove(drive, title):
 
+    # Wait for lock to open
+    wait(drive)
+
+    # Close lock
+    lock(drive)
+
     # Open metadata
     data = loadMetadata(drive)
 
@@ -267,17 +299,21 @@ def exploitRemove(drive, title):
     # Get 'title' element containing group data
     groups = data['groups'][title]['images']
 
-    debugPrint(str(groups))
+    debugPrint("Deleting images")
 
     # Iterate over image list deleting images
     for file in groups:
         id = file['id']
         drive.files().delete(fileId=id).execute()
 
+    debugPrint("Removing entry from metadata file")
+
     # Remove entry from metadata and save
     del data['groups'][title]
 
     saveMetadata(drive, data)
+
+    unlock(drive)
 
 
 # Since photos are moved to Google Photos when deleted from Google drive (only if uploaded via B&S) and Google Photos
@@ -294,15 +330,15 @@ def exploitPrefix(drive):
 # This function will delete all files in tmp created by this processes parent
 def exploitFlush():
 
-    # Get parent identifier
+    fileList = os.listdir(config['temporary-file-path'])
+
     parentIdentifier = getParentIdentifier()
 
-    # Get list of all files generated by tuasb with the same parent id as this and delete
-    completeList = os.listdir(config['temporary-file-path'])
+    debugPrint("Removing temporary files with parent identifier " + parentIdentifier)
 
-    for file in completeList:
-        if parentIdentifier in file:
-            os.remove(config['temporary-file-path'] + "\\" + file)
+    for file in fileList:
+        if file[0:32] == parentIdentifier:
+            os.remove(os.path.join(config['temporary-file-path'], file))
 
 
 # For testing purposes, not to be in final release
@@ -310,6 +346,7 @@ def deleteAll(drive):
     groups = loadMetadata(drive)['groups']
 
     for group in groups:
+        debugPrint("Deleting group " + group)
         exploitRemove(drive, group)
 
 
@@ -317,24 +354,18 @@ def main():
 
     global config
 
-    debugPrint("Parent PID: " + str(os.getppid()))
-
     try:
 
         drive, config = exploitStartup()
 
-        debugPrint("Prefix: " + str(exploitPrefix(drive)))
-
-        debugPrint("Arguments: " + str(sys.argv))
-
         if sys.argv.__len__() < 2:
-            debugPrint("Invalid command number of line arguments, aborting...")
+            debugPrint("Invalid command number of line arguments, see tusab -h. aborting...")
             sys.exit(INVALID_NUMBER_OF_COMMAND_LINE_ARGUMENTS)
         else:
             command = sys.argv[1]
             if command == "-d":
                 if sys.argv.__len__() != 4 and sys.argv.__len__() != 5:
-                    debugPrint("Invalid number of command line arguments for -d, aborting...")
+                    debugPrint("Invalid number of command line arguments for -d, see tusab -h. aborting...")
                     sys.exit(INVALID_NUMBER_OF_COMMAND_LINE_ARGUMENTS)
 
                 if not os.path.exists(sys.argv[-1]):
@@ -345,7 +376,8 @@ def main():
                     if sys.argv[3][0:2] == "-p":
                         exploitDownload(drive, sys.argv[2], sys.argv[4], password=sys.argv[3][2:len(sys.argv[3])])
                     else:
-                        debugPrint("Expected -p{password} argument, got '" + str(sys.argv[3]) + "' instead. Aborting...")
+                        debugPrint("Expected -p{password} argument, got '" + str(sys.argv[3]) +
+                                   "' instead. See tusab -h. Aborting...")
                         sys.exit(PASSWORD_REQUIRED)
                 else:
                     exploitDownload(drive, sys.argv[2], sys.argv[3])
@@ -353,14 +385,14 @@ def main():
             elif command == "-u":
 
                 if sys.argv.__len__() < 4:
-                    debugPrint("Invalid number of command line arguments for -u, aborting...")
+                    debugPrint("Invalid number of command line arguments for -u, see tusab -h. Aborting...")
                     sys.exit(INVALID_NUMBER_OF_COMMAND_LINE_ARGUMENTS)
 
                 start = 4 if sys.argv[3][0:2] == "-p" else 3
 
                 for i in range(start, sys.argv.__len__()):
                     if not os.path.exists(sys.argv[i]):
-                        debugPrint("File '" + sys.argv[i] + "' does not exist. Aborting...")
+                        debugPrint("File '" + sys.argv[i] + "' does not exist. see tusab -h. Aborting...")
                         sys.exit(INVALID_COMMAND_LINE_PATH)
 
                 exploitUpload(drive, sys.argv[2], sys.argv[start:sys.argv.__len__()],
@@ -368,28 +400,28 @@ def main():
 
             elif command == "-l":
                 if sys.argv.__len__() != 2:
-                    debugPrint("Invalid number of command line arguments for -l, aborting...")
+                    debugPrint("Invalid number of command line arguments for -l, see tusab -h. Aborting...")
                     sys.exit(INVALID_NUMBER_OF_COMMAND_LINE_ARGUMENTS)
 
                 outputPrint(json.dumps(exploitList(drive)))
 
             elif command == "-p":
                 if sys.argv.__len__() != 2:
-                    debugPrint("Invalid number of command line arguments for -p, aborting...")
+                    debugPrint("Invalid number of command line arguments for -p, see tusab -h. Aborting...")
                     sys.exit(INVALID_NUMBER_OF_COMMAND_LINE_ARGUMENTS)
 
                 outputPrint("{ \"prefix\": \"" + str(exploitPrefix(drive)) + "\" }")
 
             elif command == "-r":
                 if sys.argv.__len__() != 3:
-                    debugPrint("Invalid number of command line arguments for -r, aborting...")
+                    debugPrint("Invalid number of command line arguments for -r, see tusab -h. Aborting...")
                     sys.exit(INVALID_NUMBER_OF_COMMAND_LINE_ARGUMENTS)
 
                 exploitRemove(drive, sys.argv[2])
 
             elif command == "-f":
                 if sys.argv.__len__() != 2:
-                    debugPrint("Invalid number of command line arguments for -f, aborting...")
+                    debugPrint("Invalid number of command line arguments for -f, see tusab -h. Aborting...")
                     sys.exit(INVALID_NUMBER_OF_COMMAND_LINE_ARGUMENTS)
 
                 exploitFlush()
@@ -402,27 +434,23 @@ def main():
                 outputPrint("          tusab.exe -r TITLE")
                 outputPrint("          tusab.exe -p")
                 outputPrint("          tusab.exe -h")
+                outputPrint("          tusab.exe -f")
                 outputPrint("")
                 outputPrint("Commands: -d Download TITLE to FOLDER location, with optional PASSWORD")
                 outputPrint("          -u Upload File/Folder list as TITLE to Drive, with optional PASSWORD")
                 outputPrint("          -l List all tusab uploads with metadata")
                 outputPrint("          -r Remove TITLE from uploads")
                 outputPrint("          -p Output image prefix (used for searching and deletion from Google Photos)")
+                outputPrint("          -h Deletes files in temporary folder created by the same parent process")
                 outputPrint("          -h Print this help message")
 
     except TusabException as exc:
         debugPrint(str(exc) + "\nAborting...")
+        unlock(drive)
         sys.exit(exc.code)
 
     finally:
 
-        fileList = os.listdir(config['temporary-file-path'])
-
-        parentIdentifier = getParentIdentifier()
-
-        for file in fileList:
-            if file[0:32] == parentIdentifier:
-                os.remove(os.path.join(config['temporary-file-path'], file))
 
         pass
 
