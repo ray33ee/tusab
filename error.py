@@ -8,7 +8,7 @@ MULTIPLE_METADATA_FILES_FOUND = -5
 METADATA_FOLDER_NOT_FOUND = -6
 METADATA_FILE_NOT_LOADED = -7
 MAGICK_CONVERT_FAILED = -8
-TOBMP_CONVERT_FAILED = -9
+B2B_CONVERT_FAILED = -9
 SEVEN_ZIP_CONVERT_FAILED = -10
 TITLE_ALREADY_EXISTS = -11
 UPLOAD_TIMEOUT = -12
@@ -56,9 +56,9 @@ class MagickConvertFailedError(TusabException):
         super().__init__("MagickConvertFailedError", MAGICK_CONVERT_FAILED, message, args)
 
 
-class tobmpConvertFailedError(TusabException):
+class b2bConvertFailedError(TusabException):
     def __init__(self, message="", *args):
-        super().__init__("tobmpConvertFailedError", TOBMP_CONVERT_FAILED, message, args)
+        super().__init__("B2BConvertFailedError", B2B_CONVERT_FAILED, message, args)
 
 
 class SevenZipConvertFailedError(TusabException):
@@ -88,7 +88,7 @@ class OutputFilesAlreadyExist(TusabException):
 
 class PasswordRequired(TusabException):
     def __init__(self, message="", *args):
-        super().__init__("OutputFilesAlreadyExist", OUTPUT_FILES_ALREADY_EXIST, message, args)
+        super().__init__("OutputFilesAlreadyExist", PASSWORD_REQUIRED, message, args)
 
 
 class IncorrectPassword(TusabException):

@@ -1,3 +1,10 @@
+Version 1.1.2
+    - Folder names are now stored as key, not as 'name' element in structure dictionary
+    - exploitUpload now outputs the file structure of the uploaded group
+    - PasswordRequired exception now returns correct error code
+    - drive.pickle, credentials.json are now part of config.json
+    - Google login output redirected to stderr
+
 Version 1.1.1
     - Resource lock on metadata file now implemented
     - Help command now functional

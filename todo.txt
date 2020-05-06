@@ -10,8 +10,16 @@ tobmp
 
 Misc
  - Send messages to stdout to convey progress of command
+ - Add readme
+ - Find out why stdout is only sent when a newline character is displayed
+    (when executing binary, from pyinstaller, in PowerShell the shell only displays the stdout buffer when a newline is sent)
+    There are times when this is not ideal (for example when waiting we would like the buffer to be sent with each '.' to keep
+    the user updated. Otherwise the '.' get sent all in one go AFTER the waiting is finished
+ - Combine drive.picke, credentials.json and config.json into one file
+    - Make sure we can save credentials.json and drive.pickle safely
 
 Uncertain
  - Create exploitUpdate for modifying uploads, or should exploitUpload replace if already exists?
  - If upload file is a single zip file, skip the archive step? what about for files too small or too large?
  - Compute hashes using 7z, verify and store in metadata?
+ - Create a function to extract individual subfiles/subfolders from images

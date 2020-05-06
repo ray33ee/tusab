@@ -9,9 +9,6 @@ from googleapiclient.http import MediaIoBaseDownload
 # Volume size ensures that resultant images are no larger than 16MP.
 volume_size = 64 * 1000 * 1000 - 1000
 
-# Config file stored on host (not in drive)
-config = None
-
 
 def exploitDownload(drive, title, folder, password=None):
 
@@ -55,7 +52,7 @@ def exploitDownload(drive, title, folder, password=None):
     conflicts = []
 
     for item in structure['folders']:
-        topDirList.append(item['name'])
+        topDirList.append(item)
 
     for element in topDirList:
         if element in subitems:
@@ -88,7 +85,7 @@ def exploitDownload(drive, title, folder, password=None):
 
         os.remove(os.path.join(config['temporary-file-path'], parentidentifier + "-" + entry['name']))
 
-        runProcess(tobmpConvertFailedError, False, "tobmp", os.path.join(config['temporary-file-path'], parentidentifier + "-" + bmpName))
+        runProcess(b2bConvertFailedError, False, "b2b", os.path.join(config['temporary-file-path'], parentidentifier + "-" + bmpName))
 
         archiveVolumes.append(os.path.join(config['temporary-file-path'], parentidentifier + "-" + entry['name'][0:-4]))
 
@@ -159,7 +156,7 @@ def exploitUpload(drive, titleName, file_list, password=None):
         prefix = data['prefix']
         if directory_list.__contains__(file_part):
             debugPrint("Processing file: " + file_part)
-            res = runProcess(tobmpConvertFailedError, True, "tobmp",
+            res = runProcess(b2bConvertFailedError, True, "b2b",
                              os.path.join(config['temporary-file-path'], file_part))
 
             dataCount += json.loads(str(res.stdout))['filesize']
@@ -194,7 +191,7 @@ def exploitUpload(drive, titleName, file_list, password=None):
     while True:
         imageFiles = drive.files().list(q="name='" + prefix + "-" + output_file_name + ".zip." + "{:03d}".format(search)
                                           + ".png'").execute()["files"]
-        sys.stderr.write(".")
+        sys.stderr.write(".\n")
         if imageFiles.__len__() > 0:
             break
         if delay == config['timeout']:
@@ -215,7 +212,7 @@ def exploitUpload(drive, titleName, file_list, password=None):
     while True:
         imageFileList = []
 
-        sys.stderr.write("...")
+        sys.stderr.write("...\n")
         for i in range(1, count + 1):
             imageFiles = drive.files().list(q="name='" + prefix + "-" + output_file_name + ".zip." + "{:03d}".format(i)
                                               + ".png' and not trashed", fields="files(id,name)").execute()["files"]
@@ -246,10 +243,14 @@ def exploitUpload(drive, titleName, file_list, password=None):
     else:
         encryption = None
 
+    text, structure = encodeFileStructure(file_list)
+
+    outputPrint(json.dumps(structure))
+
     # Modify dictionary
     data["groups"][titleName] = {
         "images": imageFileList,
-        "structure": encodeFileStructure(file_list),
+        "structure": text,
         "size": {
             "pixmap": None,      # Size of pixmap in bytes.
             "data": dataCount  # Total size of input data

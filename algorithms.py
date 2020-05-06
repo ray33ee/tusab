@@ -4,6 +4,7 @@ from google.auth.transport.requests import Request
 from googleapiclient.http import MediaIoBaseDownload
 from googleapiclient.http import MediaIoBaseUpload
 from googleapiclient.discovery import build
+from google.oauth2 import credentials
 
 import io
 import pickle
@@ -11,8 +12,8 @@ import sys
 import json
 import uuid
 import os
+import sys
 import time
-
 import subprocess
 
 import hashlib
@@ -34,6 +35,9 @@ METADATA_FOLDER_NAME = "exploit images (" + FOLDER_IDENTIFIER + ")"
 # Name of resource lock
 RESOURCE_LOCK_NAME = ".mutex-"
 
+# Name of config file
+CONFIG_FILENAME = "config.json"
+
 # If modifying these scopes, delete the file token.pickle.
 DRIVESCOPES = ['https://www.googleapis.com/auth/drive']
 
@@ -53,6 +57,9 @@ metadataID = None
 metaFolderID = None
 mutexFileID = None
 
+
+# Config file stored on host (not in drive)
+config = None
 
 # Runs a process using subprocess.run, with stdout redirected to stderr and raises exception if the command fails.
 def runProcess(exception, text, *args):
@@ -248,11 +255,12 @@ def createMutex(drive):
 
 def getFolders(path):
 
+    folderName = os.path.basename(path)
+
     # Setup template
     folder = {
-        "name": os.path.basename(path),
         "files": [],
-        "folders": []
+        "folders": {}
     }
 
     # Get a list of containing files and folders
@@ -263,7 +271,7 @@ def getFolders(path):
         if os.path.isfile(os.path.join(path, item)):
             folder['files'].append(os.path.basename(item))
         elif os.path.isdir(os.path.join(path, item)):
-            folder['folders'].append(getFolders(os.path.join(path, item)))
+            folder['folders'][item] = (getFolders(os.path.join(path, item)))
 
     return folder
 
@@ -279,7 +287,7 @@ def decodeFileStructure(message):
 def encodeFileStructure(file_list):
     structure = {
         "files": [],
-        "folders": []
+        "folders": {}
     }
 
     # Iterate over file_list then recursively list containing files and folders
@@ -288,7 +296,7 @@ def encodeFileStructure(file_list):
             if os.path.isfile(path):
                 structure['files'].append(os.path.basename(path))
             elif os.path.isdir(path):
-                structure['folders'].append(getFolders(path))
+                structure['folders'][os.path.basename(path)] = getFolders(path)
 
     # Uncomment this line to return the structure as a python object and skip the following code
     # return structure
@@ -298,7 +306,7 @@ def encodeFileStructure(file_list):
 
     base = base64.b64encode(data).decode('utf-8')
 
-    return base
+    return base, structure
 
 
 # Here we feed the parent PID into an md5 generator to create an identifier unique to the parent process.
@@ -309,33 +317,53 @@ def getParentIdentifier():
 
 
 # Get valid credentials for Google drive api
-def getCredentials(scopes, name):
-    creds = None
+def getCredentials(scopes):
 
-    if os.path.exists(name):
-        with open(name, 'rb') as token:
-            creds = pickle.load(token)
-    # If there are no (valid) credentials available, let the user log in.
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
+    global config
+
+    if not config['user-credentials']:
+        flow = InstalledAppFlow.from_client_config(client_config=config['app-credentials'], scopes=scopes)
+
+        # Since flow.run_local_server prints a message in stdout, we redirect this to stderr
+        backup = sys.stdout
+        sys.stdout = sys.stderr
+        creds = flow.run_local_server(port=0)
+        sys.stdout = backup
+
+        config['user-credentials'] = {
+            "token": creds.token,
+            "refresh_token": creds.refresh_token,
+            "id_token": creds.id_token,
+            "token_uri": creds.token_uri,
+            "client_id": creds.client_id,
+            "client_secret": creds.client_secret,
+            "scopes": scopes
+        }
+
+        with open(os.path.join(os.path.dirname(__file__), CONFIG_FILENAME), "w") as configFile:
+            json.dump(config, configFile, indent=4)
+    else:
+        creds = credentials.Credentials(**config['user-credentials'])
+
+        if creds.expired and creds.refresh_token:
             creds.refresh(Request())
-        else:
-            flow = InstalledAppFlow.from_client_secrets_file(
-                os.path.join(os.path.dirname(__file__), 'credentials.json'), scopes)
-            creds = flow.run_local_server(port=0)
-        # Save the credentials for the next run
-        with open(name, 'wb') as token:
-            pickle.dump(creds, token)
+
+            with open(os.path.join(os.path.dirname(__file__), CONFIG_FILENAME), "w") as configFile:
+                json.dump(config, configFile, indent=4)
 
     return creds
 
 
 def exploitStartup():
 
-    global metadataID, metaFolderID
+    global metadataID, metaFolderID, config
+
+    # Load the config file - The config file, config.json should be automatically generated during installation
+    with open(os.path.join(os.path.dirname(__file__), CONFIG_FILENAME), "r") as file:
+        config = json.load(file)
 
     # Get drive service
-    driveCreds = getCredentials(DRIVESCOPES, os.path.join(os.path.dirname(__file__), "drive.pickle"))
+    driveCreds = getCredentials(DRIVESCOPES)
 
     drive = build('drive', 'v3', credentials=driveCreds)
 
@@ -349,9 +377,5 @@ def exploitStartup():
     # If metadata file does not exist, create an empty one
     if not metadataID:
         createMetadata(drive)
-
-    # Load the config file - The config file, config.json should be automatically generated during installation
-    fp = open(os.path.join(os.path.dirname(__file__), "config.json"), "r")
-    config = json.load(fp)
 
     return drive, config
