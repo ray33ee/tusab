@@ -23,3 +23,7 @@ Tusab uses Google Photos which only adds a small extra data penalty, but also al
 
 Despire the small data penalty compared to other Google exploits, uploads will generally be slower than regular cloud uploads. Also Cloud services let you explore files and download individual files easily. This is not possible with Tusab as files are grouped together.
 That said, those disadvantages are small compared to unlimited free storage. 
+
+## Binary
+
+An installer for Windows only (TUSAB uses Google's backup and sync which doesn't support Linux) can be found [here](https://sourceforge.net/projects/tusabgui/files/tusab-gui.zip/download)
