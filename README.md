@@ -5,6 +5,8 @@ Script allowing free, unlimited cloud storage
 
 As of June 1st 2021, Google will no longer support unlimited High-quality picture uploads.
 
+Tusab can still be used as before, the only difference is that images uploaded WILL count towards the user's storage.
+
 ## What
 
 Google cloud storage allows unlimited storage of certain file types. Files created using Google Drive's applications and images uploaded to Google Photos at high quality qualify. 
